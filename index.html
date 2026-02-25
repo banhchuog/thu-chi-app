@@ -335,6 +335,7 @@
         if (!user) {
             document.getElementById('loginOverlay').style.display = 'flex';
         } else {
+            document.getElementById('loginOverlay').style.display = 'none';
             updateUserDisplay(user);
         }
     }
