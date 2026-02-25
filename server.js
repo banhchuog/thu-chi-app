@@ -32,8 +32,13 @@ async function initDB() {
             subject VARCHAR(255),
             amount BIGINT,
             currency VARCHAR(10),
-            note TEXT
+            note TEXT,
+            created_by VARCHAR(100)
         )
+    `);
+    // Thêm cột created_by nếu DB cũ chưa có
+    await pool.query(`
+        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_by VARCHAR(100)
     `);
     console.log('Database sẵn sàng.');
 }
@@ -51,13 +56,13 @@ app.get('/api/transactions', async (req, res) => {
 // API thêm giao dịch mới
 app.post('/api/transactions', async (req, res) => {
     try {
-        const { date, type, subject, amount, currency, note } = req.body;
+        const { date, type, subject, amount, currency, note, created_by } = req.body;
         const id = Date.now();
         await pool.query(
-            'INSERT INTO transactions (id, date, type, subject, amount, currency, note) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-            [id, date, type, subject, amount, currency, note || '']
+            'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+            [id, date, type, subject, amount, currency, note || '', created_by || '']
         );
-        res.json({ id, date, type, subject, amount, currency, note });
+        res.json({ id, date, type, subject, amount, currency, note, created_by });
     } catch (err) {
         res.status(500).json({ error: 'Lỗi thêm giao dịch' });
     }
@@ -98,6 +103,7 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const results = [];
         const errors = [];
+        const created_by = req.body.created_by || 'Không rõ';
 
         for (let i = 0; i < req.files.length; i++) {
             const file = req.files[i];
@@ -134,8 +140,8 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
                 const id = Date.now() + i;
 
                 await pool.query(
-                    'INSERT INTO transactions (id, date, type, subject, amount, currency, note) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-                    [id, extracted.date || new Date().toISOString().split('T')[0], type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '']
+                    'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+                    [id, extracted.date || new Date().toISOString().split('T')[0], type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '', created_by]
                 );
 
                 results.push({ id, type, subject: extracted.subject, amount, currency });

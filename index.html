@@ -51,12 +51,34 @@
         .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
         .modal-actions button { flex: 1; margin-bottom: 0; }
         .btn-cancel { background: #6c757d; }
+        /* Login Screen */
+        .login-overlay { display: flex; position: fixed; inset: 0; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); z-index: 9999; align-items: center; justify-content: center; }
+        .login-box { background: white; border-radius: 16px; padding: 40px 44px; width: 380px; max-width: 92vw; box-shadow: 0 20px 60px rgba(0,0,0,0.4); text-align: center; }
+        .login-box h2 { margin: 0 0 8px 0; font-size: 22px; color: #1a1a2e; }
+        .login-box p { color: #666; margin: 0 0 24px 0; font-size: 14px; }
+        .login-box input { font-size: 16px; text-align: center; border: 2px solid #e0e0e0; transition: border 0.2s; }
+        .login-box input:focus { border-color: #007bff; outline: none; }
+        .login-box button { font-size: 16px; margin-top: 4px; }
+        /* User badge trên header */
+        .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .user-badge { display: flex; align-items: center; gap: 10px; background: #f0f4ff; border-radius: 30px; padding: 6px 14px 6px 8px; font-size: 14px; }
+        .user-avatar { width: 32px; height: 32px; background: #007bff; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; }
+        .btn-logout { background: none; border: 1px solid #ccc; color: #666; padding: 4px 10px; font-size: 12px; width: auto; margin: 0; border-radius: 20px; cursor: pointer; font-weight: normal; }
+        .btn-logout:hover { background: #f8d7da; border-color: #dc3545; color: #dc3545; }
+        .creator-badge { display: inline-block; background: #e9ecef; border-radius: 12px; padding: 2px 8px; font-size: 12px; color: #495057; white-space: nowrap; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Quản lý Thu Chi Doanh Nghiệp</h1>
+    <div class="header-bar">
+        <h1 style="margin:0; font-size: 22px;">Quản lý Thu Chi Doanh Nghiệp</h1>
+        <div class="user-badge">
+            <div class="user-avatar" id="userAvatar">?</div>
+            <span id="userNameDisplay">Chưa đăng nhập</span>
+            <button class="btn-logout" onclick="logout()">Thoát</button>
+        </div>
+    </div>
 
     <div class="upload-box">
         <h3>Tải lên hình ảnh (Hoá đơn / Màn hình chuyển khoản)</h3>
@@ -86,6 +108,12 @@
                 <option value="Chi">Chi</option>
             </select>
         </div>
+        <div>
+            <label>Người thực hiện</label>
+            <select id="filterPerson">
+                <option value="">Tất cả</option>
+            </select>
+        </div>
         <button type="button" onclick="applyFilter()" class="btn-secondary">Lọc</button>
         <button type="button" onclick="resetFilter()" style="background:#6c757d;">Bỏ lọc</button>
     </div>
@@ -100,6 +128,7 @@
         <thead>
             <tr>
                 <th>Ngày</th>
+                <th>Người TH</th>
                 <th>Loại</th>
                 <th>Đối tượng</th>
                 <th>Số tiền</th>
@@ -163,23 +192,60 @@
 <script>
     const API_URL = '/api';
     let allTransactions = [];
-    let usdRate = 25400; // Tỷ giá mặc định, sẽ được cập nhật từ API
+    let usdRate = 25400;
 
-    // Lấy tỷ giá USD/VND hiện tại
+    // ===== ĐĂNG NHẬP =====
+    function getCurrentUser() {
+        return localStorage.getItem('thu_chi_user') || '';
+    }
+
+    function checkLogin() {
+        const user = getCurrentUser();
+        if (!user) {
+            document.getElementById('loginOverlay').style.display = 'flex';
+        } else {
+            updateUserDisplay(user);
+        }
+    }
+
+    function updateUserDisplay(name) {
+        document.getElementById('userNameDisplay').textContent = name;
+        document.getElementById('userAvatar').textContent = name.charAt(0).toUpperCase();
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('loginName').value.trim();
+        if (!name) return;
+        localStorage.setItem('thu_chi_user', name);
+        document.getElementById('loginOverlay').style.display = 'none';
+        updateUserDisplay(name);
+        fetchUsdRate().then(() => loadTransactions());
+    });
+
+    function logout() {
+        if (!confirm('Bạn muốn đăng xuất?')) return;
+        localStorage.removeItem('thu_chi_user');
+        document.getElementById('userNameDisplay').textContent = 'Chưa đăng nhập';
+        document.getElementById('userAvatar').textContent = '?';
+        document.getElementById('loginOverlay').style.display = 'flex';
+        document.getElementById('loginName').value = '';
+    }
+
+    // ===== TỶ GIÁ =====
     async function fetchUsdRate() {
         try {
             const res = await fetch('https://open.er-api.com/v6/latest/USD');
             const data = await res.json();
             if (data && data.rates && data.rates.VND) {
                 usdRate = data.rates.VND;
-                console.log(`Tỷ giá USD/VND: ${usdRate.toLocaleString()}`);
             }
         } catch (e) {
             console.warn('Không lấy được tỷ giá, dùng mặc định:', usdRate);
         }
     }
 
-    // Điền danh sách tháng vào dropdown filter
+    // ===== FILTER =====
     function populateMonthFilter(data) {
         const select = document.getElementById('filterMonth');
         const currentVal = select.value;
@@ -196,20 +262,32 @@
         });
     }
 
-    // Chuyển đổi số tiền sang VND nếu là USD
+    function populatePersonFilter(data) {
+        const select = document.getElementById('filterPerson');
+        const currentVal = select.value;
+        const persons = [...new Set(data.map(tx => tx.created_by || '').filter(Boolean))].sort();
+        select.innerHTML = '<option value="">Tất cả</option>';
+        persons.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            if (p === currentVal) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
     function toVND(tx) {
-        if (tx.currency === 'USD') {
-            return Math.round(Number(tx.amount) * usdRate);
-        }
+        if (tx.currency === 'USD') return Math.round(Number(tx.amount) * usdRate);
         return Number(tx.amount);
     }
 
-    // Lấy danh sách giao dịch
+    // ===== LOAD & RENDER =====
     async function loadTransactions() {
         try {
             const res = await fetch(`${API_URL}/transactions`);
             allTransactions = await res.json();
             populateMonthFilter(allTransactions);
+            populatePersonFilter(allTransactions);
             renderTable(allTransactions);
         } catch (error) {
             console.error("Lỗi khi tải dữ liệu:", error);
@@ -219,8 +297,6 @@
     function renderTable(data) {
         const tbody = document.querySelector('#reportTable tbody');
         tbody.innerHTML = '';
-
-        // Sắp xếp theo ngày mới nhất
         data.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         let totalThu = 0, totalChi = 0;
@@ -234,6 +310,8 @@
             const usdNote = tx.currency === 'USD'
                 ? `<span class="usd-badge">(${Number(tx.amount).toLocaleString()} USD × ${Math.round(usdRate).toLocaleString()})</span>`
                 : '';
+            const creatorName = tx.created_by || '';
+            const creatorBadge = creatorName ? `<span class="creator-badge">👤 ${creatorName}</span>` : '<span style="color:#ccc">—</span>';
 
             if (isThu) totalThu += amountVND;
             else totalChi += amountVND;
@@ -241,6 +319,7 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${tx.date}</td>
+                <td>${creatorBadge}</td>
                 <td style="color: ${isThu ? 'green' : 'red'}; font-weight: bold;">${tx.type}</td>
                 <td>${tx.subject}</td>
                 <td class="${isThu ? 'amount-thu' : 'amount-chi'}">${signedDisplay}${usdNote}</td>
@@ -265,22 +344,24 @@
     function applyFilter() {
         const month = document.getElementById('filterMonth').value;
         const type = document.getElementById('filterType').value;
+        const person = document.getElementById('filterPerson').value;
         let filtered = allTransactions;
         if (month) filtered = filtered.filter(tx => tx.date && tx.date.startsWith(month));
         if (type) filtered = filtered.filter(tx => tx.type === type);
+        if (person) filtered = filtered.filter(tx => tx.created_by === person);
         renderTable(filtered);
     }
 
     function resetFilter() {
         document.getElementById('filterMonth').value = '';
         document.getElementById('filterType').value = '';
+        document.getElementById('filterPerson').value = '';
         renderTable(allTransactions);
     }
 
-    // Xoá giao dịch
+    // ===== XOÁ =====
     async function deleteTransaction(id) {
         if (!confirm('Bạn có chắc chắn muốn xoá giao dịch này?')) return;
-        
         try {
             await fetch(`${API_URL}/transactions/${id}`, { method: 'DELETE' });
             loadTransactions();
@@ -289,11 +370,10 @@
         }
     }
 
-    // Sửa giao dịch bằng modal popup
+    // ===== SỬA =====
     async function editTransaction(id) {
         const tx = allTransactions.find(t => t.id === id);
         if (!tx) return;
-
         const modal = document.getElementById('editModal');
         document.getElementById('editDate').value = tx.date;
         document.getElementById('editType').value = tx.type;
@@ -333,41 +413,34 @@
         }
     });
 
-
-    // Upload nhiều ảnh và quét AI, tự động lưu
+    // ===== UPLOAD =====
     async function uploadImages() {
         const fileInput = document.getElementById('imageInput');
         if (!fileInput.files || fileInput.files.length === 0) {
             alert('Vui lòng chọn ít nhất một hình ảnh!');
             return;
         }
+        const currentUser = getCurrentUser();
+        if (!currentUser) { alert('Vui lòng đăng nhập trước!'); return; }
 
         const formData = new FormData();
         for (let i = 0; i < fileInput.files.length; i++) {
             formData.append('images', fileInput.files[i]);
         }
+        formData.append('created_by', currentUser);
 
         const loadingDiv = document.getElementById('loading');
         loadingDiv.style.display = 'block';
         loadingDiv.innerText = `Đang xử lý ${fileInput.files.length} hình ảnh bằng AI... Vui lòng đợi.`;
 
         try {
-            const res = await fetch(`${API_URL}/upload-bulk`, {
-                method: 'POST',
-                body: formData
-            });
-            
+            const res = await fetch(`${API_URL}/upload-bulk`, { method: 'POST', body: formData });
             if (!res.ok) throw new Error('Lỗi khi xử lý ảnh');
-            
             const data = await res.json();
-            
             let msg = `Đã xử lý và lưu thành công ${data.results.length} giao dịch.`;
-            if (data.errors && data.errors.length > 0) {
-                msg += `\nLỗi xử lý ${data.errors.length} ảnh: ${data.errors.join(', ')}`;
-            }
+            if (data.errors && data.errors.length > 0) msg += `\nLỗi xử lý ${data.errors.length} ảnh: ${data.errors.join(', ')}`;
             alert(msg);
-            
-            loadTransactions(); // Tải lại bảng
+            loadTransactions();
         } catch (error) {
             alert('Có lỗi xảy ra khi quét ảnh. Vui lòng thử lại.');
             console.error(error);
@@ -377,20 +450,19 @@
         }
     }
 
-    // Xuất file CSV (chỉ xuất dữ liệu đang hiển thị, bỏ cột Hành động)
+    // ===== XUẤT CSV =====
     function exportCSV() {
         const table = document.getElementById("reportTable");
         const BOM = "\uFEFF";
         let csv = [];
         const totalCols = table.rows[0] ? table.rows[0].cells.length : 0;
-        const actionColIndex = totalCols - 1; // Cột cuối là Hành động
+        const actionColIndex = totalCols - 1;
 
         for (let i = 0; i < table.rows.length; i++) {
             let row = [];
             const cols = table.rows[i].querySelectorAll("td, th");
             for (let j = 0; j < cols.length; j++) {
-                if (j === actionColIndex) continue; // Bỏ cột Hành động
-                // Lấy text thuần, bỏ badge USD
+                if (j === actionColIndex) continue;
                 const badge = cols[j].querySelector('.usd-badge');
                 if (badge) badge.style.display = 'none';
                 const text = cols[j].innerText.trim();
@@ -402,9 +474,11 @@
 
         const month = document.getElementById('filterMonth').value;
         const type = document.getElementById('filterType').value;
+        const person = document.getElementById('filterPerson').value;
         let filename = 'Bao_Cao_Thu_Chi';
         if (month) { const [y,m] = month.split('-'); filename += `_T${m}_${y}`; }
         if (type) filename += `_${type}`;
+        if (person) filename += `_${person.replace(/\s/g,'_')}`;
         filename += '.csv';
 
         const csvFile = new Blob([BOM + csv.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -417,9 +491,23 @@
         document.body.removeChild(downloadLink);
     }
 
-    // Load tỷ giá và dữ liệu ban đầu
-    fetchUsdRate().then(() => loadTransactions());
+    // ===== KHỞI ĐỘNG =====
+    checkLogin();
+    if (getCurrentUser()) fetchUsdRate().then(() => loadTransactions());
 </script>
+
+<!-- Login Overlay -->
+<div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+        <div style="font-size: 48px; margin-bottom: 8px;">💼</div>
+        <h2>Quản lý Thu Chi</h2>
+        <p>Nhập tên của bạn để bắt đầu</p>
+        <form id="loginForm">
+            <input type="text" id="loginName" placeholder="Tên của bạn (ví dụ: Nguyễn Văn A)" required autocomplete="off">
+            <button type="submit">Đăng nhập</button>
+        </form>
+    </div>
+</div>
 
 </body>
 </html>
