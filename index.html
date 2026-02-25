@@ -189,6 +189,19 @@
     </div>
 </div>
 
+<!-- Login Overlay -->
+<div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+        <div style="font-size: 48px; margin-bottom: 8px;">💼</div>
+        <h2>Quản lý Thu Chi</h2>
+        <p>Nhập tên của bạn để bắt đầu</p>
+        <form id="loginForm">
+            <input type="text" id="loginName" placeholder="Tên của bạn (ví dụ: Nguyễn Văn A)" required autocomplete="off">
+            <button type="submit">Đăng nhập</button>
+        </form>
+    </div>
+</div>
+
 <script>
     const API_URL = '/api';
     let allTransactions = [];
@@ -495,19 +508,6 @@
     checkLogin();
     if (getCurrentUser()) fetchUsdRate().then(() => loadTransactions());
 </script>
-
-<!-- Login Overlay -->
-<div class="login-overlay" id="loginOverlay">
-    <div class="login-box">
-        <div style="font-size: 48px; margin-bottom: 8px;">💼</div>
-        <h2>Quản lý Thu Chi</h2>
-        <p>Nhập tên của bạn để bắt đầu</p>
-        <form id="loginForm">
-            <input type="text" id="loginName" placeholder="Tên của bạn (ví dụ: Nguyễn Văn A)" required autocomplete="off">
-            <button type="submit">Đăng nhập</button>
-        </form>
-    </div>
-</div>
 
 </body>
 </html>
