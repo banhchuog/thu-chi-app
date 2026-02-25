@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản lý Thu Chi Doanh Nghiệp</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; }
+        h1 { text-align: center; color: #333; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input, select, button { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #28a745; color: white; border: none; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background-color: #218838; }
+        .btn-secondary { background-color: #007bff; }
+        .btn-secondary:hover { background-color: #0069d9; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .flex-row { display: flex; gap: 10px; }
+        .flex-row > div { flex: 1; }
+        #loading { display: none; color: #007bff; font-weight: bold; text-align: center; margin-top: 10px; }
+        .upload-box { border: 2px dashed #007bff; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 20px; background-color: #f8f9fa; }
+        .btn-action { padding: 5px 10px; margin: 2px; font-size: 12px; width: auto; display: inline-block; border-radius: 4px; }
+        .btn-edit { background-color: #ffc107; color: black; }
+        .btn-edit:hover { background-color: #e0a800; }
+        .btn-delete { background-color: #dc3545; color: white; }
+        .btn-delete:hover { background-color: #c82333; }
+        .filter-bar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; background: #eef3fc; padding: 14px 16px; border-radius: 8px; margin-bottom: 12px; }
+        .filter-bar label { margin-bottom: 4px; font-size: 13px; }
+        .filter-bar select, .filter-bar input { width: auto; padding: 8px 10px; margin-bottom: 0; font-size: 14px; }
+        .filter-bar button { width: auto; padding: 8px 18px; font-size: 14px; margin-bottom: 0; }
+        .summary-bar { display: flex; gap: 16px; flex-wrap: wrap; margin: 14px 0 20px 0; }
+        .summary-card { flex: 1; min-width: 200px; padding: 20px 24px; border-radius: 12px; font-weight: bold; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .summary-card.thu { background: #d4edda; color: #155724; border-left: 6px solid #28a745; }
+        .summary-card.chi { background: #f8d7da; color: #721c24; border-left: 6px solid #dc3545; }
+        .summary-card.sodu { background: #d1ecf1; color: #0c5460; border-left: 6px solid #17a2b8; }
+        .summary-card .label { display: block; font-size: 13px; font-weight: normal; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; }
+        .summary-card .value { display: block; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+        td.amount-thu { color: green; font-weight: bold; }
+        td.amount-chi { color: red; font-weight: bold; }
+        .usd-badge { font-size: 11px; color: #888; margin-left: 4px; }
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 999; align-items: center; justify-content: center; }
+        .modal-box { background: white; border-radius: 12px; padding: 28px 32px; width: 480px; max-width: 95vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+        .modal-box h3 { margin: 0 0 20px 0; font-size: 18px; }
+        .modal-box label { font-size: 13px; margin-bottom: 3px; }
+        .modal-row { display: flex; gap: 10px; }
+        .modal-row > div { flex: 1; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+        .modal-actions button { flex: 1; margin-bottom: 0; }
+        .btn-cancel { background: #6c757d; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Quản lý Thu Chi Doanh Nghiệp</h1>
+
+    <div class="upload-box">
+        <h3>Tải lên hình ảnh (Hoá đơn / Màn hình chuyển khoản)</h3>
+        <p>Hệ thống AI sẽ tự động quét và lưu trực tiếp vào báo cáo. Bạn có thể chọn nhiều ảnh cùng lúc.</p>
+        <input type="file" id="imageInput" accept="image/*" multiple>
+        <button type="button" class="btn-secondary" onclick="uploadImages()">Tải lên & Tự động lưu</button>
+        <div id="loading">Đang xử lý hình ảnh bằng AI... Vui lòng đợi.</div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 40px;">
+        <h2>Báo cáo hàng tháng</h2>
+        <button class="btn-secondary" style="width: auto; padding: 10px 20px;" onclick="exportCSV()">Xuất CSV</button>
+    </div>
+
+    <div class="filter-bar">
+        <div>
+            <label>Tháng</label>
+            <select id="filterMonth">
+                <option value="">Tất cả</option>
+            </select>
+        </div>
+        <div>
+            <label>Loại</label>
+            <select id="filterType">
+                <option value="">Tất cả</option>
+                <option value="Thu">Thu</option>
+                <option value="Chi">Chi</option>
+            </select>
+        </div>
+        <button type="button" onclick="applyFilter()" class="btn-secondary">Lọc</button>
+        <button type="button" onclick="resetFilter()" style="background:#6c757d;">Bỏ lọc</button>
+    </div>
+
+    <div class="summary-bar">
+        <div class="summary-card thu"><span class="label">Tổng Thu</span><span class="value" id="sumThu">0 ₫</span></div>
+        <div class="summary-card chi"><span class="label">Tổng Chi</span><span class="value" id="sumChi">0 ₫</span></div>
+        <div class="summary-card sodu"><span class="label">Số Dư</span><span class="value" id="sumBalance">0 ₫</span></div>
+    </div>
+    
+    <table id="reportTable">
+        <thead>
+            <tr>
+                <th>Ngày</th>
+                <th>Loại</th>
+                <th>Đối tượng</th>
+                <th>Số tiền</th>
+                <th>Tiền tệ</th>
+                <th>Ghi chú</th>
+                <th>Hành động</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Dữ liệu sẽ được load vào đây -->
+        </tbody>
+    </table>
+</div>
+
+<!-- Modal Sửa Giao Dịch -->
+<div class="modal-overlay" id="editModal" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box">
+        <h3>✏️ Sửa Giao Dịch</h3>
+        <form id="editForm">
+            <input type="hidden" id="editId">
+            <div class="modal-row">
+                <div>
+                    <label>Ngày phát sinh</label>
+                    <input type="date" id="editDate" required>
+                </div>
+                <div>
+                    <label>Loại</label>
+                    <select id="editType">
+                        <option value="Thu">Thu</option>
+                        <option value="Chi">Chi</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-row">
+                <div>
+                    <label>Đối tượng</label>
+                    <input type="text" id="editSubject" required>
+                </div>
+                <div>
+                    <label>Số tiền</label>
+                    <input type="number" id="editAmount" required>
+                </div>
+                <div>
+                    <label>Tiền tệ</label>
+                    <select id="editCurrency">
+                        <option value="VND">VND</option>
+                        <option value="USD">USD</option>
+                    </select>
+                </div>
+            </div>
+            <label>Ghi chú</label>
+            <input type="text" id="editNote">
+            <div class="modal-actions">
+                <button type="submit">Lưu thay đổi</button>
+                <button type="button" class="btn-cancel" onclick="closeModal()">Huỷ</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const API_URL = '/api';
+    let allTransactions = [];
+    let usdRate = 25400; // Tỷ giá mặc định, sẽ được cập nhật từ API
+
+    // Lấy tỷ giá USD/VND hiện tại
+    async function fetchUsdRate() {
+        try {
+            const res = await fetch('https://open.er-api.com/v6/latest/USD');
+            const data = await res.json();
+            if (data && data.rates && data.rates.VND) {
+                usdRate = data.rates.VND;
+                console.log(`Tỷ giá USD/VND: ${usdRate.toLocaleString()}`);
+            }
+        } catch (e) {
+            console.warn('Không lấy được tỷ giá, dùng mặc định:', usdRate);
+        }
+    }
+
+    // Điền danh sách tháng vào dropdown filter
+    function populateMonthFilter(data) {
+        const select = document.getElementById('filterMonth');
+        const currentVal = select.value;
+        const months = [...new Set(data.map(tx => tx.date ? tx.date.substring(0, 7) : ''))]
+            .filter(Boolean).sort().reverse();
+        select.innerHTML = '<option value="">Tất cả</option>';
+        months.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            const [y, mo] = m.split('-');
+            opt.textContent = `Tháng ${parseInt(mo)}/${y}`;
+            if (m === currentVal) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    // Chuyển đổi số tiền sang VND nếu là USD
+    function toVND(tx) {
+        if (tx.currency === 'USD') {
+            return Math.round(Number(tx.amount) * usdRate);
+        }
+        return Number(tx.amount);
+    }
+
+    // Lấy danh sách giao dịch
+    async function loadTransactions() {
+        try {
+            const res = await fetch(`${API_URL}/transactions`);
+            allTransactions = await res.json();
+            populateMonthFilter(allTransactions);
+            renderTable(allTransactions);
+        } catch (error) {
+            console.error("Lỗi khi tải dữ liệu:", error);
+        }
+    }
+
+    function renderTable(data) {
+        const tbody = document.querySelector('#reportTable tbody');
+        tbody.innerHTML = '';
+
+        // Sắp xếp theo ngày mới nhất
+        data.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        let totalThu = 0, totalChi = 0;
+
+        data.forEach(tx => {
+            const amountVND = toVND(tx);
+            const isThu = tx.type === 'Thu';
+            const signedDisplay = isThu
+                ? '+' + amountVND.toLocaleString('vi-VN')
+                : '-' + amountVND.toLocaleString('vi-VN');
+            const usdNote = tx.currency === 'USD'
+                ? `<span class="usd-badge">(${Number(tx.amount).toLocaleString()} USD × ${Math.round(usdRate).toLocaleString()})</span>`
+                : '';
+
+            if (isThu) totalThu += amountVND;
+            else totalChi += amountVND;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${tx.date}</td>
+                <td style="color: ${isThu ? 'green' : 'red'}; font-weight: bold;">${tx.type}</td>
+                <td>${tx.subject}</td>
+                <td class="${isThu ? 'amount-thu' : 'amount-chi'}">${signedDisplay}${usdNote}</td>
+                <td>VND</td>
+                <td>${tx.note || ''}</td>
+                <td>
+                    <button class="btn-action btn-edit" onclick="editTransaction(${tx.id})">Sửa</button>
+                    <button class="btn-action btn-delete" onclick="deleteTransaction(${tx.id})">Xoá</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        const balance = totalThu - totalChi;
+        document.getElementById('sumThu').textContent = '+' + totalThu.toLocaleString('vi-VN') + ' ₫';
+        document.getElementById('sumChi').textContent = '-' + totalChi.toLocaleString('vi-VN') + ' ₫';
+        const balEl = document.getElementById('sumBalance');
+        balEl.textContent = (balance >= 0 ? '+' : '') + balance.toLocaleString('vi-VN') + ' ₫';
+        balEl.style.color = balance >= 0 ? '#0c5460' : '#721c24';
+    }
+
+    function applyFilter() {
+        const month = document.getElementById('filterMonth').value;
+        const type = document.getElementById('filterType').value;
+        let filtered = allTransactions;
+        if (month) filtered = filtered.filter(tx => tx.date && tx.date.startsWith(month));
+        if (type) filtered = filtered.filter(tx => tx.type === type);
+        renderTable(filtered);
+    }
+
+    function resetFilter() {
+        document.getElementById('filterMonth').value = '';
+        document.getElementById('filterType').value = '';
+        renderTable(allTransactions);
+    }
+
+    // Xoá giao dịch
+    async function deleteTransaction(id) {
+        if (!confirm('Bạn có chắc chắn muốn xoá giao dịch này?')) return;
+        
+        try {
+            await fetch(`${API_URL}/transactions/${id}`, { method: 'DELETE' });
+            loadTransactions();
+        } catch (error) {
+            alert('Lỗi khi xoá giao dịch!');
+        }
+    }
+
+    // Sửa giao dịch bằng modal popup
+    async function editTransaction(id) {
+        const tx = allTransactions.find(t => t.id === id);
+        if (!tx) return;
+
+        const modal = document.getElementById('editModal');
+        document.getElementById('editDate').value = tx.date;
+        document.getElementById('editType').value = tx.type;
+        document.getElementById('editSubject').value = tx.subject;
+        document.getElementById('editAmount').value = tx.amount;
+        document.getElementById('editCurrency').value = tx.currency;
+        document.getElementById('editNote').value = tx.note || '';
+        document.getElementById('editId').value = tx.id;
+        modal.style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('editModal').style.display = 'none';
+    }
+
+    document.getElementById('editForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = parseInt(document.getElementById('editId').value);
+        const tx = {
+            date: document.getElementById('editDate').value,
+            type: document.getElementById('editType').value,
+            subject: document.getElementById('editSubject').value,
+            amount: document.getElementById('editAmount').value,
+            currency: document.getElementById('editCurrency').value,
+            note: document.getElementById('editNote').value
+        };
+        try {
+            await fetch(`${API_URL}/transactions/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(tx)
+            });
+            closeModal();
+            await loadTransactions();
+        } catch (error) {
+            alert('Lỗi khi cập nhật giao dịch!');
+        }
+    });
+
+
+    // Upload nhiều ảnh và quét AI, tự động lưu
+    async function uploadImages() {
+        const fileInput = document.getElementById('imageInput');
+        if (!fileInput.files || fileInput.files.length === 0) {
+            alert('Vui lòng chọn ít nhất một hình ảnh!');
+            return;
+        }
+
+        const formData = new FormData();
+        for (let i = 0; i < fileInput.files.length; i++) {
+            formData.append('images', fileInput.files[i]);
+        }
+
+        const loadingDiv = document.getElementById('loading');
+        loadingDiv.style.display = 'block';
+        loadingDiv.innerText = `Đang xử lý ${fileInput.files.length} hình ảnh bằng AI... Vui lòng đợi.`;
+
+        try {
+            const res = await fetch(`${API_URL}/upload-bulk`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!res.ok) throw new Error('Lỗi khi xử lý ảnh');
+            
+            const data = await res.json();
+            
+            let msg = `Đã xử lý và lưu thành công ${data.results.length} giao dịch.`;
+            if (data.errors && data.errors.length > 0) {
+                msg += `\nLỗi xử lý ${data.errors.length} ảnh: ${data.errors.join(', ')}`;
+            }
+            alert(msg);
+            
+            loadTransactions(); // Tải lại bảng
+        } catch (error) {
+            alert('Có lỗi xảy ra khi quét ảnh. Vui lòng thử lại.');
+            console.error(error);
+        } finally {
+            loadingDiv.style.display = 'none';
+            fileInput.value = '';
+        }
+    }
+
+    // Xuất file CSV (chỉ xuất dữ liệu đang hiển thị, bỏ cột Hành động)
+    function exportCSV() {
+        const table = document.getElementById("reportTable");
+        const BOM = "\uFEFF";
+        let csv = [];
+        const totalCols = table.rows[0] ? table.rows[0].cells.length : 0;
+        const actionColIndex = totalCols - 1; // Cột cuối là Hành động
+
+        for (let i = 0; i < table.rows.length; i++) {
+            let row = [];
+            const cols = table.rows[i].querySelectorAll("td, th");
+            for (let j = 0; j < cols.length; j++) {
+                if (j === actionColIndex) continue; // Bỏ cột Hành động
+                // Lấy text thuần, bỏ badge USD
+                const badge = cols[j].querySelector('.usd-badge');
+                if (badge) badge.style.display = 'none';
+                const text = cols[j].innerText.trim();
+                if (badge) badge.style.display = '';
+                row.push('"' + text.replace(/"/g, '""') + '"');
+            }
+            csv.push(row.join(","));
+        }
+
+        const month = document.getElementById('filterMonth').value;
+        const type = document.getElementById('filterType').value;
+        let filename = 'Bao_Cao_Thu_Chi';
+        if (month) { const [y,m] = month.split('-'); filename += `_T${m}_${y}`; }
+        if (type) filename += `_${type}`;
+        filename += '.csv';
+
+        const csvFile = new Blob([BOM + csv.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const downloadLink = document.createElement("a");
+        downloadLink.download = filename;
+        downloadLink.href = window.URL.createObjectURL(csvFile);
+        downloadLink.style.display = "none";
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+    }
+
+    // Load tỷ giá và dữ liệu ban đầu
+    fetchUsdRate().then(() => loadTransactions());
+</script>
+
+</body>
+</html>
