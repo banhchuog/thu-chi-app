@@ -30,7 +30,7 @@ async function initDB() {
             date VARCHAR(20),
             type VARCHAR(10),
             subject VARCHAR(255),
-            amount BIGINT,
+            amount NUMERIC(15,2),
             currency VARCHAR(10),
             note TEXT,
             created_by VARCHAR(100)
@@ -40,6 +40,10 @@ async function initDB() {
     await pool.query(`
         ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_by VARCHAR(100)
     `);
+    // Đổi kiểu amount sang NUMERIC để lưu được số thập phân (USD)
+    try {
+        await pool.query(`ALTER TABLE transactions ALTER COLUMN amount TYPE NUMERIC(15,2) USING amount::NUMERIC(15,2)`);
+    } catch(e) { /* Đã là NUMERIC rồi, bỏ qua */ }
     console.log('Database sẵn sàng.');
 }
 
@@ -117,7 +121,7 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
                 {
                     "date": "Ngày phát sinh (định dạng YYYY-MM-DD)",
                     "subject": "Đối tượng (Tên người gửi/nhận hoặc cửa hàng)",
-                    "amount": "Số tiền (chỉ để số, ví dụ: 100000)",
+                    "amount": "Số tiền dướng dạng số thuần, giữ nguyên phần thập phân nếu có (ví dụ: 24.99 hoặc 1500000, không dùng dấu phẩy phân cách nhóm số)",
                     "currency": "Loại tiền tệ (VND hoặc USD)",
                     "type": "Bên nhận/chuyển (Thu hoặc Chi)",
                     "note": "Ghi chú thêm (Nội dung chuyển khoản hoặc chi tiết hoá đơn)"
@@ -135,8 +139,21 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
 
                 const typeLower = (extracted.type || '').toLowerCase();
                 const type = (typeLower.includes('thu') || typeLower.includes('nhận')) ? 'Thu' : 'Chi';
-                const amount = extracted.amount ? extracted.amount.toString().replace(/[^0-9]/g, '') : 0;
                 const currency = (extracted.currency || '').toUpperCase().includes('USD') ? 'USD' : 'VND';
+
+                // Parse số tiền: giữ dấu thập phân nếu là USD, loại bỏ nếu là VND
+                function parseAmount(raw) {
+                    const str = String(raw || '0').replace(/[^0-9.,]/g, '');
+                    // Nếu kết thúc bằng dấu phẩy hoặc chấm rồi 1-2 số (thập phân thật sự)
+                    const decMatch = str.match(/[.,](\d{1,2})$/);
+                    if (decMatch) {
+                        const dec = decMatch[1];
+                        const intPart = str.slice(0, str.length - decMatch[0].length).replace(/[.,]/g, '');
+                        return parseFloat(`${intPart}.${dec}`) || 0;
+                    }
+                    return parseInt(str.replace(/[.,]/g, ''), 10) || 0;
+                }
+                const amount = parseAmount(extracted.amount);
                 const id = Date.now() + i;
 
                 await pool.query(
