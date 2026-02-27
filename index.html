@@ -183,10 +183,11 @@
         }
 
         /* API Key panel */
-        .apikey-section { margin-top: 32px; border-top: 2px solid #f0f0f0; padding-top: 20px; }
-        .apikey-section summary { cursor: pointer; font-size: 15px; font-weight: 700; color: #555; padding: 8px 0; user-select: none; list-style: none; display: flex; align-items: center; gap: 8px; }
-        .apikey-section summary::before { content: '▶'; font-size: 11px; transition: transform 0.2s; }
-        details[open] .apikey-section summary::before { transform: rotate(90deg); }
+        .apikey-section { margin-top: 12px; }
+        .apikey-summary { cursor: pointer; font-size: 15px; font-weight: 700; color: #555; padding: 8px 0; user-select: none; list-style: none; display: flex; align-items: center; gap: 8px; }
+        .apikey-summary::marker, .apikey-summary::-webkit-details-marker { display: none; }
+        .apikey-summary::before { content: '▶'; font-size: 11px; transition: transform 0.2s; }
+        details[open] .apikey-summary::before { transform: rotate(90deg); }
         .apikey-create { display: flex; gap: 8px; margin: 14px 0 10px 0; }
         .apikey-create input { flex: 1; margin: 0; font-size: 14px; padding: 9px 12px; }
         .apikey-create button { width: auto; margin: 0; padding: 9px 16px; font-size: 14px; }
@@ -285,23 +286,24 @@
 <!-- API Key Panel -->
 <div class="container" style="margin-top: 12px;">
     <details>
+        <summary class="apikey-summary">🔑 API Key — Tích hợp với app khác</summary>
         <div class="apikey-section">
-        <summary>🔑 API Key — Tich hợp với app khác</summary>
-        <div class="api-doc">
-            <strong>Cách dùng:</strong> Gọi endpoint sau từ app khác (Google Sheets, n8n, Make...) để lấy dữ liệu thu chi:<br>
-            <code id="apiEndpointText">https://thuchi.up.railway.app/api/v1/transactions</code><br><br>
-            Thêm vào header: <code>X-Api-Key: &lt;your_key&gt;</code><br>
-            Hoặc query: <code>?api_key=&lt;your_key&gt;</code>
-        </div>
-
-        <div class="apikey-create">
-            <input type="text" id="newKeyName" placeholder="Tên app (ví dụ: Google Sheets, n8n...)" maxlength="50">
-            <button onclick="createApiKey()">➕ Tạo key</button>
-        </div>
-        <div class="key-list" id="keyList"><em style="color:#aaa; font-size:13px;">Đang tải...</em></div>
+            <div class="api-doc">
+                <strong>Cách dùng:</strong> Gọi endpoint sau từ app khác (Google Sheets, n8n, Make...) để lấy dữ liệu thu chi:<br>
+                <code>https://thuchi.up.railway.app/api/v1/transactions</code><br><br>
+                Thêm vào header: <code>X-Api-Key: &lt;your_key&gt;</code><br>
+                Hoặc query: <code>?api_key=&lt;your_key&gt;</code>
+            </div>
+            <div class="apikey-create">
+                <input type="text" id="newKeyName" placeholder="Tên app (ví dụ: Google Sheets, n8n...)" maxlength="50">
+                <button onclick="createApiKey()">➕ Tạo key</button>
+            </div>
+            <div class="key-list" id="keyList"><em style="color:#aaa; font-size:13px;">Đang tải...</em></div>
         </div>
     </details>
 </div>
+
+<!-- Modal Sửa Giao Dịch -->
 <div class="modal-overlay" id="editModal" onclick="if(event.target===this)closeModal()">
     <div class="modal-box">
         <h3>✏️ Sửa Giao Dịch</h3>
