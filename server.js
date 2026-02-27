@@ -223,6 +223,97 @@ app.post('/api/import-xlsx', async (req, res) => {
     }
 });
 
+// ===== IMPORT TEMPLATE HÀNG LOẠT =====
+// Parse file CSV/XLSX theo cột header chuẩn: Ngày | Loại | Đối tượng | Số tiền | Tiền tệ | Ghi chú | Người thực hiện
+app.post('/api/parse-template', upload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Không có file' });
+    try {
+        const wb = XLSX.readFile(req.file.path);
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+
+        if (rows.length < 2) return res.json({ items: [], errors: [] });
+
+        // Map header → column index (chấp nhận tiếng Việt + tiếng Anh)
+        const headers = rows[0].map(h => String(h).trim().toLowerCase());
+        const col = {
+            date:       headers.findIndex(h => /ngày|date/.test(h)),
+            type:       headers.findIndex(h => /^loại|^type/.test(h)),
+            subject:    headers.findIndex(h => /đối tượng|subject|hạng mục/.test(h)),
+            amount:     headers.findIndex(h => /số tiền|amount/.test(h)),
+            currency:   headers.findIndex(h => /tiền tệ|currency/.test(h)),
+            note:       headers.findIndex(h => /ghi chú|note/.test(h)),
+            created_by: headers.findIndex(h => /người|created_by|thực hiện/.test(h)),
+        };
+
+        const items = [], errors = [];
+        const today = new Date().toISOString().split('T')[0];
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (row.filter(c => c !== '').length === 0) continue;
+
+            const get = (idx) => idx >= 0 ? String(row[idx] ?? '').trim() : '';
+            const subject = get(col.subject);
+            const amountRaw = col.amount >= 0 ? row[col.amount] : '';
+            let amount = typeof amountRaw === 'number'
+                ? amountRaw
+                : parseFloat(String(amountRaw).replace(/[.\s]/g,'').replace(',','.').replace(/[đdₓ₫$%a-zA-Z]/gi,'')) || 0;
+
+            if (!subject) { errors.push(`Hàng ${i+1}: thiếu đối tượng`); continue; }
+            if (!amount)  { errors.push(`Hàng ${i+1}: thiếu hoặc sai số tiền`); continue; }
+
+            const rawDate = get(col.date);
+            // Chấp nhận YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY
+            let date = today;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+                date = rawDate;
+            } else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(rawDate)) {
+                const parts = rawDate.split(/[\/\-]/);
+                date = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+            }
+
+            const typeRaw = get(col.type).toLowerCase();
+            const type = typeRaw.includes('thu') ? 'Thu' : 'Chi';
+            const currencyRaw = get(col.currency).toUpperCase();
+            const currency = currencyRaw === 'USD' ? 'USD' : 'VND';
+            const note = get(col.note);
+            const created_by = get(col.created_by);
+
+            items.push({ date, type, subject, amount, currency, note, created_by });
+        }
+
+        console.log(`Template parse: ${items.length} items, ${errors.length} errors`);
+        res.json({ items, errors });
+    } catch (err) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.status(500).json({ error: 'Lỗi đọc file: ' + err.message });
+    }
+});
+
+// Import sau khi user xác nhận (full transaction objects)
+app.post('/api/import-template', async (req, res) => {
+    try {
+        const { items, default_created_by, source } = req.body;
+        if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Không có dữ liệu' });
+        let count = 0;
+        for (let i = 0; i < items.length; i++) {
+            const { date, type, subject, amount, currency, note, created_by } = items[i];
+            const id = Date.now() + i * 10;
+            await pool.query(
+                'INSERT INTO transactions (id,date,type,subject,amount,currency,note,created_by,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+                [id, date, type || 'Chi', subject, amount, currency || 'VND', note || '',
+                 created_by || default_created_by || 'Import', source || 'Import hàng loạt']
+            );
+            count++;
+        }
+        res.json({ success: true, count });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ===== API KEY MANAGEMENT =====
 async function validateApiKey(req, res, next) {
     const key = req.headers['x-api-key'] || req.query.api_key;

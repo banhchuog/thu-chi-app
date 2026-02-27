@@ -341,6 +341,65 @@
     </details>
 </div>
 
+<!-- Import hàng loạt từ template -->
+<div class="container" style="margin-top: 12px;">
+    <details id="templatePanel">
+        <summary class="apikey-summary">📅 Import hàng loạt từ Template (CSV/Excel)</summary>
+        <div class="apikey-section">
+            <div style="background:#f0f7ff;border:1px solid #bdd7f5;border-radius:8px;padding:12px 14px;font-size:13px;color:#1d4ed8;margin-bottom:14px;">
+                <strong>ℹ️ Hướng dẫn:</strong> Tải file mẫu ⇒ Điền dữ liệu ⇒ Upload lại ⇒ Xác nhận import.<br>
+                Cột bắt buộc: <strong>Loại</strong> (Thu/Chi), <strong>Đối tượng</strong>, <strong>Số tiền</strong>. Cột khác không bắt buộc.
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end;">
+                <div style="flex:1;min-width:160px;">
+                    <label style="font-size:12px;font-weight:600;">Tên nguồn</label>
+                    <input type="text" id="tplSource" value="Import hàng loạt" style="margin:0;font-size:14px;padding:8px;">
+                </div>
+                <button onclick="downloadTemplate()" style="width:auto;padding:10px 16px;background:#17a2b8;white-space:nowrap;flex-shrink:0;">⬇️ Tải file mẫu CSV</button>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="file" id="tplFile" accept=".xlsx,.xls,.csv" style="flex:1;min-width:180px;margin:0;padding:8px;font-size:13px;">
+                <button onclick="parseTemplateFile()" class="btn-secondary" style="width:auto;padding:10px 18px;white-space:nowrap;">📂 Đọc file</button>
+            </div>
+            <div id="tplLoading" style="display:none;color:#007bff;text-align:center;padding:12px;font-weight:bold;">Đang đọc file...</div>
+        </div>
+    </details>
+</div>
+
+<!-- Template Preview Modal -->
+<div class="modal-overlay" id="templateModal" onclick="if(event.target===this)closeTemplateModal()">
+    <div class="modal-box" style="max-width:760px;">
+        <h3>📅 Xác nhận import hàng loạt</h3>
+        <p id="tplSummaryText" style="font-size:13px;color:#666;margin:0 0 10px;"></p>
+        <div id="tplErrorBox" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#856404;max-height:80px;overflow-y:auto;"></div>
+        <div style="max-height:42vh;overflow-y:auto;border:1px solid #e8e8e8;border-radius:8px;">
+            <table style="width:100%;min-width:unset;margin-top:0;">
+                <thead>
+                    <tr>
+                        <th style="width:32px;padding:7px 8px;text-align:center;"><input type="checkbox" id="tplCheckAll" checked onchange="toggleAllTpl(this)"></th>
+                        <th style="padding:7px 8px;">Ngày</th>
+                        <th style="padding:7px 8px;">Loại</th>
+                        <th style="padding:7px 8px;">Đối tượng</th>
+                        <th style="padding:7px 8px;">Số tiền</th>
+                        <th style="padding:7px 8px;">Ghi chú</th>
+                        <th style="padding:7px 8px;">Người TH</th>
+                    </tr>
+                </thead>
+                <tbody id="tplPreviewBody"></tbody>
+            </table>
+        </div>
+        <div style="margin:10px 0;padding:10px 12px;background:#f0f7ff;border-radius:8px;font-size:13px;display:flex;gap:16px;flex-wrap:wrap;">
+            Đã chọn: <strong id="tplSelectedCount">0</strong> giao dịch &nbsp;|&nbsp;
+            🟢 Thu: <strong id="tplTotalThu" style="color:#1a8a3c;">0 ₫</strong> &nbsp;|&nbsp;
+            🔴 Chi: <strong id="tplTotalChi" style="color:#c82333;">0 ₫</strong>
+        </div>
+        <div class="modal-actions">
+            <button onclick="confirmImportTemplate()">✅ Import đã chọn</button>
+            <button class="btn-cancel" onclick="closeTemplateModal()">Huỷ</button>
+        </div>
+    </div>
+</div>
+
 <!-- XLSX Preview Modal -->
 <div class="modal-overlay" id="xlsxModal" onclick="if(event.target===this)closeXlsxModal()">
     <div class="modal-box" style="max-width:660px;">
@@ -1002,6 +1061,127 @@
             closeXlsxModal();
             alert(`✅ Đã import ${data.count} khoản chi phí thành công!`);
             document.getElementById('xlsxFile').value = '';
+            loadTransactions();
+        } catch(err) { alert('Lỗi khi import: ' + err.message); }
+    }
+
+    // ===== IMPORT TEMPLATE HÀNG LOẠT =====
+    function downloadTemplate() {
+        const BOM = "\uFEFF";
+        const headers = ['Ngày', 'Loại', 'Đối tượng', 'Số tiền', 'Tiền tệ', 'Ghi chú', 'Người thực hiện'];
+        const today = new Date().toISOString().split('T')[0];
+        const user = getCurrentUser() || '';
+        const examples = [
+            [today, 'Chi', 'Văn phòng phẩm', '150000', 'VND', 'Mua giấy in', user],
+            [today, 'Thu', 'Khách hàng ABC', '5000000', 'VND', 'Thanh toán HĐ001', user],
+            [today, 'Chi', 'Phí dịch vụ cloud', '24.99', 'USD', '', user],
+        ];
+        const csv = [headers, ...examples]
+            .map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(','))
+            .join('\n');
+        const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'template_thu_chi.csv';
+        a.click();
+    }
+
+    async function parseTemplateFile() {
+        const fileInput = document.getElementById('tplFile');
+        if (!fileInput.files || !fileInput.files[0]) { alert('Vui lòng chọn file CSV hoặc Excel!'); return; }
+        const loading = document.getElementById('tplLoading');
+        loading.style.display = 'block';
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        try {
+            const res = await fetch(`${API_URL}/parse-template`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.error) { alert('Lỗi: ' + data.error); return; }
+            if (!data.items || !data.items.length) {
+                let msg = 'Không tìm thấy dữ liệu hợp lệ.';
+                if (data.errors && data.errors.length) msg += '\n\nChi tiết lỗi:\n' + data.errors.join('\n');
+                alert(msg); return;
+            }
+            window._tplItems = data.items;
+            window._tplSource = document.getElementById('tplSource').value || 'Import hàng loạt';
+
+            // Render preview
+            const tbody = document.getElementById('tplPreviewBody');
+            tbody.innerHTML = '';
+            data.items.forEach((item, idx) => {
+                const isThu = item.type === 'Thu';
+                const amtStr = (item.currency === 'USD'
+                    ? item.amount.toLocaleString('en-US', {minimumFractionDigits:2}) + ' $'
+                    : Math.round(item.amount).toLocaleString('vi-VN') + ' ₫');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="text-align:center;padding:6px 8px;"><input type="checkbox" class="tpl-check" data-idx="${idx}" checked></td>
+                    <td style="padding:6px 8px;font-size:12px;white-space:nowrap;">${item.date}</td>
+                    <td style="padding:6px 8px;font-weight:bold;color:${isThu ? '#1a8a3c' : '#c82333'};white-space:nowrap;">${item.type}</td>
+                    <td style="padding:6px 8px;font-size:13px;">${item.subject}</td>
+                    <td style="padding:6px 8px;font-size:13px;font-weight:bold;white-space:nowrap;color:${isThu ? '#1a8a3c' : '#c82333'};">${isThu ? '+' : '-'}${amtStr}</td>
+                    <td style="padding:6px 8px;font-size:12px;color:#888;">${item.note || ''}</td>
+                    <td style="padding:6px 8px;font-size:12px;">${item.created_by || ''}</td>`;
+                tbody.appendChild(tr);
+            });
+
+            // Error box
+            const errBox = document.getElementById('tplErrorBox');
+            if (data.errors && data.errors.length) {
+                errBox.style.display = 'block';
+                errBox.innerHTML = '⚠️ ' + data.errors.join('<br>');
+            } else { errBox.style.display = 'none'; }
+
+            document.querySelectorAll('.tpl-check').forEach(cb => cb.addEventListener('change', updateTplSummary));
+            updateTplSummary();
+            document.getElementById('templateModal').style.display = 'flex';
+        } catch(err) {
+            alert('Lỗi khi đọc file: ' + err.message);
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+    function updateTplSummary() {
+        let count = 0, thu = 0, chi = 0;
+        document.querySelectorAll('.tpl-check').forEach(cb => {
+            if (!cb.checked) return;
+            const item = window._tplItems[parseInt(cb.dataset.idx)];
+            const amtVND = item.currency === 'USD' ? Math.round(item.amount * usdRate) : item.amount;
+            count++;
+            if (item.type === 'Thu') thu += amtVND; else chi += amtVND;
+        });
+        document.getElementById('tplSelectedCount').textContent = count;
+        document.getElementById('tplTotalThu').textContent = '+' + Math.round(thu).toLocaleString('vi-VN') + ' ₫';
+        document.getElementById('tplTotalChi').textContent = '-' + Math.round(chi).toLocaleString('vi-VN') + ' ₫';
+    }
+
+    function toggleAllTpl(masterCb) {
+        document.querySelectorAll('.tpl-check').forEach(cb => { cb.checked = masterCb.checked; });
+        updateTplSummary();
+    }
+
+    function closeTemplateModal() {
+        document.getElementById('templateModal').style.display = 'none';
+    }
+
+    async function confirmImportTemplate() {
+        const selected = [];
+        document.querySelectorAll('.tpl-check').forEach(cb => {
+            if (cb.checked) selected.push(window._tplItems[parseInt(cb.dataset.idx)]);
+        });
+        if (!selected.length) { alert('Chưa chọn giao dịch nào!'); return; }
+        try {
+            const res = await fetch(`${API_URL}/import-template`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: selected, default_created_by: getCurrentUser(), source: window._tplSource })
+            });
+            const data = await res.json();
+            if (data.error) { alert('Lỗi: ' + data.error); return; }
+            closeTemplateModal();
+            alert(`✅ Đã import ${data.count} giao dịch thành công!`);
+            document.getElementById('tplFile').value = '';
             loadTransactions();
         } catch(err) { alert('Lỗi khi import: ' + err.message); }
     }
