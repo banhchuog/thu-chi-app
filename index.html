@@ -635,7 +635,7 @@
 
     // ===== SỬA =====
     async function editTransaction(id) {
-        const tx = allTransactions.find(t => t.id === id);
+        const tx = allTransactions.find(t => String(t.id) === String(id));
         if (!tx) return;
         const modal = document.getElementById('editModal');
         document.getElementById('editDate').value = tx.date;
@@ -654,7 +654,7 @@
 
     document.getElementById('editForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const id = parseInt(document.getElementById('editId').value);
+        const id = document.getElementById('editId').value;
         const tx = {
             date: document.getElementById('editDate').value,
             type: document.getElementById('editType').value,
