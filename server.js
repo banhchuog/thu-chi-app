@@ -296,12 +296,18 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
             try {
                 const imageBase64 = fs.readFileSync(imagePath).toString('base64');
 
+                const today = new Date();
+                const currentYear = today.getFullYear();
+                const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
+                const currentDateStr = today.toISOString().split('T')[0];
+
                 const prompt = `
+                Hôm nay là ngày ${currentDateStr} (năm ${currentYear}, tháng ${currentMonth}).
                 Phân tích hình ảnh hoá đơn hoặc màn hình chuyển khoản này và trích xuất các thông tin sau dưới dạng JSON:
                 {
-                    "date": "Ngày phát sinh (định dạng YYYY-MM-DD)",
+                    "date": "Ngày phát sinh (định dạng YYYY-MM-DD). QUAN TRỌNG: Nếu hình chỉ có ngày/tháng mà không rõ năm, hãy dùng năm ${currentYear}. Nếu hình có 2 chữ số năm (ví dụ 26), hãy hiểu là 20XX phù hợp nhất với ngày hôm nay (${currentYear}).",
                     "subject": "Đối tượng (Tên người gửi/nhận hoặc cửa hàng)",
-                    "amount": "Số tiền dướng dạng số thuần, giữ nguyên phần thập phân nếu có (ví dụ: 24.99 hoặc 1500000, không dùng dấu phẩy phân cách nhóm số)",
+                    "amount": "Số tiền dưới dạng số thuần, giữ nguyên phần thập phân nếu có (ví dụ: 24.99 hoặc 1500000, không dùng dấu phẩy phân cách nhóm số)",
                     "currency": "Loại tiền tệ (VND hoặc USD)",
                     "type": "Bên nhận/chuyển (Thu hoặc Chi)",
                     "note": "Ghi chú thêm (Nội dung chuyển khoản hoặc chi tiết hoá đơn)"
@@ -321,6 +327,16 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
                 const type = (typeLower.includes('thu') || typeLower.includes('nhận')) ? 'Thu' : 'Chi';
                 const currency = (extracted.currency || '').toUpperCase().includes('USD') ? 'USD' : 'VND';
 
+                // Validate và sửa năm nếu AI trả về sai
+                let extractedDate = extracted.date || currentDateStr;
+                if (extractedDate && extractedDate.length >= 4) {
+                    const yearInDate = parseInt(extractedDate.substring(0, 4));
+                    if (Math.abs(yearInDate - currentYear) > 1) {
+                        // Năm lệch quá 1 năm → thay bằng năm hiện tại
+                        extractedDate = currentYear + extractedDate.substring(4);
+                    }
+                }
+
                 // Parse số tiền: giữ dấu thập phân nếu là USD, loại bỏ nếu là VND
                 function parseAmount(raw) {
                     const str = String(raw || '0').replace(/[^0-9.,]/g, '');
@@ -338,7 +354,7 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
 
                 await pool.query(
                     'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-                    [id, extracted.date || new Date().toISOString().split('T')[0], type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '', created_by, uploadSource]
+                    [id, extractedDate, type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '', created_by, uploadSource]
                 );
 
                 results.push({ id, type, subject: extracted.subject, amount, currency });
