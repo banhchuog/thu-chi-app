@@ -118,40 +118,67 @@ app.post('/api/parse-xlsx', upload.single('file'), (req, res) => {
         const wb = XLSX.readFile(req.file.path);
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
         const items = [];
+        const skipped = [];
 
         for (const row of rows) {
-            if (!Array.isArray(row) || row.every(c => c === '' || c === null)) continue;
-            const flat = row.map(c => String(c ?? '').trim());
+            if (!Array.isArray(row)) continue;
 
-            // Bỏ qua hàng tổng hợp
-            const texts = flat.filter(c => c && c.length > 1 && !/^[\d,.]+[đd₫]?$/i.test(c.replace(/\s/g,'')) && !/^\d+$/.test(c));
-            if (!texts.length) continue;
-            if (/^tổng|^total/i.test(texts[0].trim())) continue;
+            // Bỏ hàng trống hoàn toàn
+            const nonEmpty = row.filter(c => c !== '' && c !== null && c !== undefined);
+            if (nonEmpty.length < 2) continue;
 
-            // Tìm số tiền lớn nhất trong hàng
+            // Tìm số tiền: ưu tiên cell kiểu number >= 10000, nếu không thì parse string
             let amount = 0;
-            for (const cell of row) {
+            let amountColIdx = -1;
+            for (let ci = 0; ci < row.length; ci++) {
+                const cell = row[ci];
                 let n = 0;
-                if (typeof cell === 'number') {
+                if (typeof cell === 'number' && cell > 0) {
                     n = cell;
-                } else {
-                    const s = String(cell).replace(/[.,\s]/g,'').replace(/[đd₫$%]/gi,'');
-                    n = parseInt(s, 10) || 0;
+                } else if (typeof cell === 'string') {
+                    const s = cell.replace(/[.\s,]/g, '').replace(/[đdₓ₫$%]/gi, '');
+                    n = parseFloat(s) || 0;
                 }
-                if (n > amount && n >= 10000) amount = n;
+                if (n >= 10000 && n > amount) {
+                    amount = n;
+                    amountColIdx = ci;
+                }
             }
-            if (!amount) continue;
+            if (!amount) { skipped.push(row.slice(0,5).join(' | ')); continue; }
 
-            const subject = texts[0];
-            const note = texts.slice(1).join(' - ');
-            const combined = flat.join(' ').toLowerCase();
-            const isPersonnel = /lương|thù lao|nhân sự|đạo diễn|diễn viên|âm thanh|ánh sáng|bts\b/.test(combined);
+            // Lấy text làm subject: bỏ cột số thứ tự (chỉ là số nhỏ), bỏ cột số tiền, lấy text đầu tiên còn lại
+            const textCells = [];
+            for (let ci = 0; ci < row.length; ci++) {
+                if (ci === amountColIdx) continue;
+                const cell = row[ci];
+                const s = String(cell ?? '').trim();
+                if (!s) continue;
+                // Bỏ cột chỉ là số (STT) hoặc % hoặc quá ngắn
+                if (/^\d{1,3}$/.test(s)) continue;
+                if (/^[\d.,]+%?$/.test(s.replace(/\s/g,''))) continue;
+                textCells.push(s);
+            }
+            if (!textCells.length) { skipped.push('no-text: ' + row.slice(0,5).join(' | ')); continue; }
+
+            const subject = textCells[0];
+            const note = textCells.slice(1).join(' | ');
+            const combined = row.map(c => String(c ?? '').toLowerCase()).join(' ');
+
+            // Bỏ qua hàng tổng / tiêu đề
+            if (/^tổng|^total|^chi phí|^hạng mục|^đối tượng|^nội dung|^stt$/i.test(subject.trim())) {
+                skipped.push('header/total: ' + subject); continue;
+            }
+
+            const isPersonnel = /lương|thù lao|nhân sự|đạo diễn|diễn viên|âm thanh|ánh sáng|\bbts\b|quay phim|dựng phim|kịch bản|thumbnail/i.test(combined);
+
             items.push({ subject, note, amount, isPersonnel });
         }
 
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-        res.json({ items });
+        console.log(`XLSX parse: ${items.length} items, ${skipped.length} skipped`);
+        res.json({ items, debug_skipped: skipped.slice(0, 10) });
     } catch (err) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         console.error('Lỗi parse xlsx:', err);
