@@ -594,7 +594,16 @@
             populateMonthFilter(allTransactions);
             populatePersonFilter(allTransactions);
             populateSourceFilter(allTransactions);
-            renderTable(allTransactions);
+            // Tự động filter tháng hiện tại nếu chưa chọn tháng nào
+            const monthSelect = document.getElementById('filterMonth');
+            if (!monthSelect.value) {
+                const now = new Date();
+                const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                if ([...monthSelect.options].some(o => o.value === currentMonth)) {
+                    monthSelect.value = currentMonth;
+                }
+            }
+            applyFilter();
         } catch (error) {
             console.error("Lỗi khi tải dữ liệu:", error);
         }
