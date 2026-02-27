@@ -5,6 +5,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Pool } = require('pg');
 const fs = require('fs');
 const cors = require('cors');
+const crypto = require('crypto');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -44,6 +45,16 @@ async function initDB() {
     try {
         await pool.query(`ALTER TABLE transactions ALTER COLUMN amount TYPE NUMERIC(15,2) USING amount::NUMERIC(15,2)`);
     } catch(e) { /* Đã là NUMERIC rồi, bỏ qua */ }
+    // Tạo bảng quản lý API key
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            key VARCHAR(64) UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            last_used TIMESTAMP
+        )
+    `);
     console.log('Database sẵn sàng.');
 }
 
@@ -94,6 +105,66 @@ app.delete('/api/transactions/:id', async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: 'Lỗi xoá giao dịch' });
+    }
+});
+
+// ===== API KEY MANAGEMENT =====
+async function validateApiKey(req, res, next) {
+    const key = req.headers['x-api-key'] || req.query.api_key;
+    if (!key) return res.status(401).json({ error: 'Thiếu API key. Truyền qua header X-Api-Key hoặc ?api_key=...' });
+    try {
+        const result = await pool.query('SELECT id FROM api_keys WHERE key=$1', [key]);
+        if (result.rows.length === 0) return res.status(403).json({ error: 'API key không hợp lệ' });
+        await pool.query('UPDATE api_keys SET last_used=NOW() WHERE key=$1', [key]);
+        next();
+    } catch(err) {
+        res.status(500).json({ error: 'Lỗi xác thực' });
+    }
+}
+
+// External read-only endpoint yêu cầu API key
+app.get('/api/v1/transactions', validateApiKey, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM transactions ORDER BY date DESC, id DESC');
+        res.json(result.rows);
+    } catch(err) {
+        res.status(500).json({ error: 'Lỗi truy vấn database' });
+    }
+});
+
+// Lấy danh sách API key
+app.get('/api/keys', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT id, name, key, created_at, last_used FROM api_keys ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch(err) {
+        res.status(500).json({ error: 'Lỗi lấy danh sách key' });
+    }
+});
+
+// Tạo API key mới
+app.post('/api/keys', async (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ error: 'Cần đặt tên cho key' });
+        const key = crypto.randomBytes(32).toString('hex');
+        const result = await pool.query(
+            'INSERT INTO api_keys (name, key) VALUES ($1,$2) RETURNING id, name, key, created_at',
+            [name.trim(), key]
+        );
+        res.json(result.rows[0]);
+    } catch(err) {
+        res.status(500).json({ error: 'Lỗi tạo key' });
+    }
+});
+
+// Xoá API key
+app.delete('/api/keys/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM api_keys WHERE id=$1', [parseInt(req.params.id)]);
+        res.json({ success: true });
+    } catch(err) {
+        res.status(500).json({ error: 'Lỗi xoá key' });
     }
 });
 

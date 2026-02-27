@@ -181,7 +181,28 @@
             .modal-box { border-radius: 20px 20px 0 0; padding: 20px 16px 32px 16px; max-height: 88vh; max-width: 100%; }
             .modal-row { flex-direction: column; gap: 0; }
         }
-    </style>
+
+        /* API Key panel */
+        .apikey-section { margin-top: 32px; border-top: 2px solid #f0f0f0; padding-top: 20px; }
+        .apikey-section summary { cursor: pointer; font-size: 15px; font-weight: 700; color: #555; padding: 8px 0; user-select: none; list-style: none; display: flex; align-items: center; gap: 8px; }
+        .apikey-section summary::before { content: '▶'; font-size: 11px; transition: transform 0.2s; }
+        details[open] .apikey-section summary::before { transform: rotate(90deg); }
+        .apikey-create { display: flex; gap: 8px; margin: 14px 0 10px 0; }
+        .apikey-create input { flex: 1; margin: 0; font-size: 14px; padding: 9px 12px; }
+        .apikey-create button { width: auto; margin: 0; padding: 9px 16px; font-size: 14px; }
+        .key-list { display: flex; flex-direction: column; gap: 8px; }
+        .key-item { background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px 14px; }
+        .key-item-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .key-item-name { font-weight: 700; font-size: 14px; color: #333; }
+        .key-item-meta { font-size: 11px; color: #aaa; margin-top: 4px; }
+        .key-value { font-family: monospace; font-size: 12px; background: #1a1a2e; color: #7ec8e3; padding: 7px 10px; border-radius: 6px; margin-top: 8px; word-break: break-all; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .key-value span { flex: 1; }
+        .btn-copy { background: #17a2b8; color: white; border: none; padding: 3px 10px; font-size: 11px; border-radius: 5px; cursor: pointer; white-space: nowrap; width: auto; margin: 0; }
+        .btn-copy:hover { background: #138496; }
+        .btn-revoke { background: #dc3545; color: white; border: none; padding: 5px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; width: auto; margin: 0; }
+        .btn-revoke:hover { background: #c82333; }
+        .api-doc { background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 12px; color: #7a5e00; }
+        .api-doc code { background: #fff3cd; padding: 1px 5px; border-radius: 4px; font-size: 12px; word-break: break-all; }
 </head>
 <body>
 
@@ -261,7 +282,26 @@
     </div>
 </div>
 
-<!-- Modal Sửa Giao Dịch -->
+<!-- API Key Panel -->
+<div class="container" style="margin-top: 12px;">
+    <details>
+        <div class="apikey-section">
+        <summary>🔑 API Key — Tich hợp với app khác</summary>
+        <div class="api-doc">
+            <strong>Cách dùng:</strong> Gọi endpoint sau từ app khác (Google Sheets, n8n, Make...) để lấy dữ liệu thu chi:<br>
+            <code id="apiEndpointText">https://thuchi.up.railway.app/api/v1/transactions</code><br><br>
+            Thêm vào header: <code>X-Api-Key: &lt;your_key&gt;</code><br>
+            Hoặc query: <code>?api_key=&lt;your_key&gt;</code>
+        </div>
+
+        <div class="apikey-create">
+            <input type="text" id="newKeyName" placeholder="Tên app (ví dụ: Google Sheets, n8n...)" maxlength="50">
+            <button onclick="createApiKey()">➕ Tạo key</button>
+        </div>
+        <div class="key-list" id="keyList"><em style="color:#aaa; font-size:13px;">Đang tải...</em></div>
+        </div>
+    </details>
+</div>
 <div class="modal-overlay" id="editModal" onclick="if(event.target===this)closeModal()">
     <div class="modal-box">
         <h3>✏️ Sửa Giao Dịch</h3>
@@ -621,7 +661,70 @@
         downloadLink.click();
         document.body.removeChild(downloadLink);
     }
+    // ===== API KEYS =====
+    async function loadApiKeys() {
+        try {
+            const res = await fetch(`${API_URL}/keys`);
+            const keys = await res.json();
+            const list = document.getElementById('keyList');
+            if (!keys.length) { list.innerHTML = '<em style="color:#aaa;font-size:13px;">Chưa có API key nào.</em>'; return; }
+            list.innerHTML = keys.map(k => `
+                <div class="key-item">
+                    <div class="key-item-header">
+                        <span class="key-item-name">🔑 ${k.name}</span>
+                        <button class="btn-revoke" onclick="revokeKey(${k.id}, '${k.name}')">Huỷ</button>
+                    </div>
+                    <div class="key-item-meta">
+                        Tạo: ${new Date(k.created_at).toLocaleString('vi-VN')}
+                        ${k.last_used ? ' &bull; Dùng lần cuối: ' + new Date(k.last_used).toLocaleString('vi-VN') : ' &bull; Chưa sử dụng'}
+                    </div>
+                    <div class="key-value">
+                        <span id="key_${k.id}">${k.key}</span>
+                        <button class="btn-copy" onclick="copyKey('${k.key}', this)">Sao chép</button>
+                    </div>
+                </div>
+            `).join('');
+        } catch(e) {
+            document.getElementById('keyList').innerHTML = '<em style="color:red;font-size:13px;">Lỗi tải danh sách key.</em>';
+        }
+    }
 
+    async function createApiKey() {
+        const name = document.getElementById('newKeyName').value.trim();
+        if (!name) { alert('Vui lòng đặt tên cho key!'); return; }
+        try {
+            const res = await fetch(`${API_URL}/keys`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            const data = await res.json();
+            if (data.error) { alert(data.error); return; }
+            document.getElementById('newKeyName').value = '';
+            loadApiKeys();
+        } catch(e) { alert('Lỗi tạo key!'); }
+    }
+
+    async function revokeKey(id, name) {
+        if (!confirm(`Huỷ API key "${name}"? App đang dùng key này sẽ mất quyền truy cập.`)) return;
+        try {
+            await fetch(`${API_URL}/keys/${id}`, { method: 'DELETE' });
+            loadApiKeys();
+        } catch(e) { alert('Lỗi huỷ key!'); }
+    }
+
+    function copyKey(key, btn) {
+        navigator.clipboard.writeText(key).then(() => {
+            btn.textContent = '✓ Đã sao chép';
+            btn.style.background = '#28a745';
+            setTimeout(() => { btn.textContent = 'Sao chép'; btn.style.background = ''; }, 2000);
+        });
+    }
+
+    // Tải danh sách key khi mở panel
+    document.querySelector('details').addEventListener('toggle', function() {
+        if (this.open) loadApiKeys();
+    });
     // ===== KHỞI ĐỘNG =====
     checkLogin();
     if (getCurrentUser()) fetchUsdRate().then(() => loadTransactions());
