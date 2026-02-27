@@ -66,6 +66,7 @@
         td.amount-chi { color: #c82333; font-weight: bold; }
         .usd-badge { font-size: 10px; color: #999; display: block; margin-top: 2px; }
         .creator-badge { display: inline-flex; align-items: center; gap: 3px; background: #e9ecef; border-radius: 12px; padding: 2px 8px; font-size: 12px; color: #495057; white-space: nowrap; }
+        .source-badge { display: inline-block; font-size: 10px; border-radius: 3px; padding: 1px 6px; margin-left: 4px; vertical-align: middle; white-space: nowrap; }
 
         /* Modal */
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; align-items: center; justify-content: center; padding: 16px; }
@@ -252,6 +253,12 @@
                 <option value="">Tất cả</option>
             </select>
         </div>
+        <div>
+            <label>Nguồn</label>
+            <select id="filterSource">
+                <option value="">Tất cả</option>
+            </select>
+        </div>
         <div class="filter-btns">
             <button type="button" onclick="applyFilter()" class="btn-secondary">Lọc</button>
             <button type="button" onclick="resetFilter()" style="background:#6c757d;">Bỏ lọc</button>
@@ -290,10 +297,12 @@
         <summary class="apikey-summary">🔑 API Key — Tích hợp với app khác</summary>
         <div class="apikey-section">
             <div class="api-doc">
-                <strong>Cách dùng:</strong> Gọi endpoint sau từ app khác (Google Sheets, n8n, Make...) để lấy dữ liệu thu chi:<br>
-                <code>https://thuchi.up.railway.app/api/v1/transactions</code><br><br>
-                Thêm vào header: <code>X-Api-Key: &lt;your_key&gt;</code><br>
-                Hoặc query: <code>?api_key=&lt;your_key&gt;</code>
+                <strong>Endpoint đọc dữ liệu:</strong><br>
+                <code>GET https://thuchi.up.railway.app/api/v1/transactions</code><br>
+                Header: <code>X-Api-Key: &lt;your_key&gt;</code> &nbsp;hoặc query: <code>?api_key=&lt;your_key&gt;</code><br><br>
+                <strong>Import hàng loạt từ app bán dịch vụ online:</strong><br>
+                <code>POST https://thuchi.up.railway.app/api/v1/transactions/bulk</code><br>
+                Body JSON: <code>{ "source": "Dịch vụ online", "transactions": [ { "date": "2026-02-27", "type": "Thu", "subject": "Tên KH", "amount": 299000, "currency": "VND", "note": "..." } ] }</code>
             </div>
             <div class="apikey-create">
                 <input type="text" id="newKeyName" placeholder="Tên app (ví dụ: Google Sheets, n8n...)" maxlength="50">
@@ -302,6 +311,58 @@
             <div class="key-list" id="keyList"><em style="color:#aaa; font-size:13px;">Đang tải...</em></div>
         </div>
     </details>
+</div>
+
+<!-- XLSX Import Panel -->
+<div class="container" style="margin-top: 12px;">
+    <details id="xlsxPanel">
+        <summary class="apikey-summary">📊 Import Chi Phí từ Excel (.xlsx)</summary>
+        <div class="apikey-section">
+            <p style="font-size:13px; color:#666; margin-bottom:14px;">Upload file Excel có danh sách chi phí. Hệ thống sẽ đọc tữđộng và cho bạn xác nhận trước khi lưu. Các hàng nhân sự sẽ được đánh dấu để bạn dễ chọn lọc.</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                <div style="flex:1; min-width:130px;">
+                    <label style="font-size:12px; font-weight:600;">Ngày quay / sự kiện</label>
+                    <input type="date" id="xlsxDate" style="margin:0; font-size:14px; padding:8px;">
+                </div>
+                <div style="flex:1; min-width:130px;">
+                    <label style="font-size:12px; font-weight:600;">Tên nguồn</label>
+                    <input type="text" id="xlsxSource" value="Chi phí sản xuất" style="margin:0; font-size:14px; padding:8px;">
+                </div>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input type="file" id="xlsxFile" accept=".xlsx,.xls" style="flex:1; min-width:180px; margin:0; padding:8px; font-size:13px;">
+                <button onclick="parseXlsxFile()" class="btn-secondary" style="width:auto; padding:10px 18px; white-space:nowrap;">📂 Đọc file</button>
+            </div>
+            <div id="xlsxLoading" style="display:none; color:#007bff; text-align:center; padding:12px; font-weight:bold;">Đang đọc file Excel...</div>
+        </div>
+    </details>
+</div>
+
+<!-- XLSX Preview Modal -->
+<div class="modal-overlay" id="xlsxModal" onclick="if(event.target===this)closeXlsxModal()">
+    <div class="modal-box" style="max-width:660px;">
+        <h3>📊 Xác nhận nhập liệu</h3>
+        <p id="xlsxSummaryText" style="font-size:13px; color:#666; margin:0 0 12px;"></p>
+        <div style="max-height:45vh; overflow-y:auto; border:1px solid #e8e8e8; border-radius:8px;">
+            <table style="width:100%; min-width:unset; margin-top:0;">
+                <thead>
+                    <tr>
+                        <th style="width:36px; padding:8px; text-align:center;"><input type="checkbox" id="xlsxCheckAll" checked onchange="toggleAllXlsx(this)"></th>
+                        <th style="padding:8px;">Hạng mục / Đối tượng</th>
+                        <th style="padding:8px;">Số tiền</th>
+                    </tr>
+                </thead>
+                <tbody id="xlsxPreviewBody"></tbody>
+            </table>
+        </div>
+        <div style="margin:10px 0; padding:10px 12px; background:#f0f7ff; border-radius:8px; font-size:13px;">
+            Đã chọn: <strong id="xlsxSelectedCount">0</strong> khoản &nbsp;|  Tổng Chi: <strong id="xlsxSelectedTotal" style="color:#c82333;">0 ₫</strong>
+        </div>
+        <div class="modal-actions">
+            <button onclick="confirmImportXlsx()">✅ Import khoản đã chọn</button>
+            <button class="btn-cancel" onclick="closeXlsxModal()">Huỷ</button>
+        </div>
+    </div>
 </div>
 
 <!-- Modal Sửa Giao Dịch -->
@@ -451,6 +512,29 @@
         });
     }
 
+    function populateSourceFilter(data) {
+        const select = document.getElementById('filterSource');
+        if (!select) return;
+        const currentVal = select.value;
+        const sources = [...new Set(data.map(tx => tx.source || 'Thủ công'))].sort();
+        select.innerHTML = '<option value="">Tất cả</option>';
+        sources.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s;
+            opt.textContent = s;
+            if (s === currentVal) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    function getSourceStyle(source) {
+        const s = source || 'Thủ công';
+        if (s === 'AI Quét') return 'background:#f3e8ff;color:#6b21a8;';
+        if (s === 'Dịch vụ online') return 'background:#dbeafe;color:#1d4ed8;';
+        if (s.includes('sản xuất') || s.includes('quay')) return 'background:#dcfce7;color:#166534;';
+        return 'background:#f0f0f0;color:#888;';
+    }
+
     function toVND(tx) {
         if (tx.currency === 'USD') return Math.round(Number(tx.amount) * usdRate);
         return Number(tx.amount);
@@ -463,6 +547,7 @@
             allTransactions = await res.json();
             populateMonthFilter(allTransactions);
             populatePersonFilter(allTransactions);
+            populateSourceFilter(allTransactions);
             renderTable(allTransactions);
         } catch (error) {
             console.error("Lỗi khi tải dữ liệu:", error);
@@ -487,6 +572,7 @@
                 : '';
             const creatorName = tx.created_by || '';
             const creatorBadge = creatorName ? `<span class="creator-badge">👤 ${creatorName}</span>` : '<span style="color:#ccc">—</span>';
+            const sourceBadge = `<span class="source-badge" style="${getSourceStyle(tx.source)}">${tx.source || 'Thủ công'}</span>`;
 
             if (isThu) totalThu += amountVND;
             else totalChi += amountVND;
@@ -496,7 +582,7 @@
                 <td data-label="Ngày">${tx.date}</td>
                 <td data-label="Người TH">${creatorBadge}</td>
                 <td data-label="Loại" style="color: ${isThu ? '#1a8a3c' : '#c82333'}; font-weight: bold;">${tx.type}</td>
-                <td data-label="Đối tượng">${tx.subject}</td>
+                <td data-label="Đối tượng">${tx.subject}${sourceBadge}</td>
                 <td data-label="Số tiền" class="${isThu ? 'amount-thu' : 'amount-chi'}">${signedDisplay}${usdNote}</td>
                 <td data-label="Ghi chú">${tx.note || ''}</td>
                 <td data-label="">
@@ -519,10 +605,12 @@
         const month = document.getElementById('filterMonth').value;
         const type = document.getElementById('filterType').value;
         const person = document.getElementById('filterPerson').value;
+        const source = document.getElementById('filterSource')?.value || '';
         let filtered = allTransactions;
         if (month) filtered = filtered.filter(tx => tx.date && tx.date.startsWith(month));
         if (type) filtered = filtered.filter(tx => tx.type === type);
         if (person) filtered = filtered.filter(tx => tx.created_by === person);
+        if (source) filtered = filtered.filter(tx => (tx.source || 'Thủ công') === source);
         renderTable(filtered);
     }
 
@@ -530,6 +618,7 @@
         document.getElementById('filterMonth').value = '';
         document.getElementById('filterType').value = '';
         document.getElementById('filterPerson').value = '';
+        if (document.getElementById('filterSource')) document.getElementById('filterSource').value = '';
         renderTable(allTransactions);
     }
 

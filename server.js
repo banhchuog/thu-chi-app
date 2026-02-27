@@ -6,6 +6,7 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const cors = require('cors');
 const crypto = require('crypto');
+const XLSX = require('xlsx');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -45,6 +46,8 @@ async function initDB() {
     try {
         await pool.query(`ALTER TABLE transactions ALTER COLUMN amount TYPE NUMERIC(15,2) USING amount::NUMERIC(15,2)`);
     } catch(e) { /* Đã là NUMERIC rồi, bỏ qua */ }
+    // Thêm cột source (nguồn giao dịch)
+    await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source VARCHAR(100) DEFAULT 'Thủ công'`);
     // Tạo bảng quản lý API key
     await pool.query(`
         CREATE TABLE IF NOT EXISTS api_keys (
@@ -71,13 +74,13 @@ app.get('/api/transactions', async (req, res) => {
 // API thêm giao dịch mới
 app.post('/api/transactions', async (req, res) => {
     try {
-        const { date, type, subject, amount, currency, note, created_by } = req.body;
+        const { date, type, subject, amount, currency, note, created_by, source } = req.body;
         const id = Date.now();
         await pool.query(
-            'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-            [id, date, type, subject, amount, currency, note || '', created_by || '']
+            'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+            [id, date, type, subject, amount, currency, note || '', created_by || '', source || 'Thủ công']
         );
-        res.json({ id, date, type, subject, amount, currency, note, created_by });
+        res.json({ id, date, type, subject, amount, currency, note, created_by, source });
     } catch (err) {
         res.status(500).json({ error: 'Lỗi thêm giao dịch' });
     }
@@ -108,6 +111,75 @@ app.delete('/api/transactions/:id', async (req, res) => {
     }
 });
 
+// API đọc file xlsx - trả về danh sách để user xem trước
+app.post('/api/parse-xlsx', upload.single('file'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Không có file' });
+    try {
+        const wb = XLSX.readFile(req.file.path);
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const items = [];
+
+        for (const row of rows) {
+            if (!Array.isArray(row) || row.every(c => c === '' || c === null)) continue;
+            const flat = row.map(c => String(c ?? '').trim());
+
+            // Bỏ qua hàng tổng hợp
+            const texts = flat.filter(c => c && c.length > 1 && !/^[\d,.]+[đd₫]?$/i.test(c.replace(/\s/g,'')) && !/^\d+$/.test(c));
+            if (!texts.length) continue;
+            if (/^tổng|^total/i.test(texts[0].trim())) continue;
+
+            // Tìm số tiền lớn nhất trong hàng
+            let amount = 0;
+            for (const cell of row) {
+                let n = 0;
+                if (typeof cell === 'number') {
+                    n = cell;
+                } else {
+                    const s = String(cell).replace(/[.,\s]/g,'').replace(/[đd₫$%]/gi,'');
+                    n = parseInt(s, 10) || 0;
+                }
+                if (n > amount && n >= 10000) amount = n;
+            }
+            if (!amount) continue;
+
+            const subject = texts[0];
+            const note = texts.slice(1).join(' - ');
+            const combined = flat.join(' ').toLowerCase();
+            const isPersonnel = /lương|thù lao|nhân sự|đạo diễn|diễn viên|âm thanh|ánh sáng|bts\b/.test(combined);
+            items.push({ subject, note, amount, isPersonnel });
+        }
+
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.json({ items });
+    } catch (err) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error('Lỗi parse xlsx:', err);
+        res.status(500).json({ error: 'Lỗi đọc file: ' + err.message });
+    }
+});
+
+// API import xlsx sau khi user đã xác nhận
+app.post('/api/import-xlsx', async (req, res) => {
+    try {
+        const { items, date, source, created_by } = req.body;
+        if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Không có dữ liệu' });
+        let count = 0;
+        for (let i = 0; i < items.length; i++) {
+            const { subject, note, amount } = items[i];
+            const id = Date.now() + i * 10;
+            await pool.query(
+                'INSERT INTO transactions (id,date,type,subject,amount,currency,note,created_by,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+                [id, date, 'Chi', subject, amount, 'VND', note || '', created_by || 'Import', source || 'Chi phí sản xuất']
+            );
+            count++;
+        }
+        res.json({ success: true, count });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ===== API KEY MANAGEMENT =====
 async function validateApiKey(req, res, next) {
     const key = req.headers['x-api-key'] || req.query.api_key;
@@ -130,6 +202,42 @@ app.get('/api/v1/transactions', validateApiKey, async (req, res) => {
     } catch(err) {
         res.status(500).json({ error: 'Lỗi truy vấn database' });
     }
+});
+
+// Thêm 1 giao dịch qua API key (từ app ngoài)
+app.post('/api/v1/transactions', validateApiKey, async (req, res) => {
+    try {
+        const { date, type, subject, amount, currency, note, created_by, source } = req.body;
+        const id = Date.now();
+        await pool.query(
+            'INSERT INTO transactions (id,date,type,subject,amount,currency,note,created_by,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+            [id, date, type || 'Thu', subject, amount, currency || 'VND', note || '', created_by || 'API', source || 'Dịch vụ online']
+        );
+        res.json({ success: true, id });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Import hàng loạt qua API key (doanh thu từ app bán dịch vụ online)
+app.post('/api/v1/transactions/bulk', validateApiKey, async (req, res) => {
+    try {
+        const { transactions, source } = req.body;
+        if (!Array.isArray(transactions) || !transactions.length)
+            return res.status(400).json({ error: 'Cần truyền mảng transactions' });
+        let count = 0;
+        const errors = [];
+        for (let i = 0; i < transactions.length; i++) {
+            const tx = transactions[i];
+            try {
+                const id = Date.now() + i;
+                await pool.query(
+                    'INSERT INTO transactions (id,date,type,subject,amount,currency,note,created_by,source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING',
+                    [id, tx.date, tx.type || 'Thu', tx.subject, tx.amount, tx.currency || 'VND', tx.note || '', tx.created_by || 'API', tx.source || source || 'Dịch vụ online']
+                );
+                count++;
+            } catch(e) { errors.push(e.message); }
+        }
+        res.json({ success: true, count, errors });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Lấy danh sách API key
@@ -179,6 +287,7 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
         const results = [];
         const errors = [];
         const created_by = req.body.created_by || 'Không rõ';
+        const uploadSource = req.body.source || 'AI Quét';
 
         for (let i = 0; i < req.files.length; i++) {
             const file = req.files[i];
@@ -228,8 +337,8 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
                 const id = Date.now() + i;
 
                 await pool.query(
-                    'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-                    [id, extracted.date || new Date().toISOString().split('T')[0], type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '', created_by]
+                    'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+                    [id, extracted.date || new Date().toISOString().split('T')[0], type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '', created_by, uploadSource]
                 );
 
                 results.push({ id, type, subject: extracted.subject, amount, currency });
