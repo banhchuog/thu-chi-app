@@ -229,7 +229,10 @@
 
     <div class="report-header">
         <h2>Báo cáo hàng tháng</h2>
-        <button class="btn-secondary" style="width: auto; padding: 10px 20px;" onclick="exportCSV()">Xuất CSV</button>
+        <div style="display:flex;gap:8px;">
+            <button onclick="openManualModal()" style="width:auto;padding:10px 16px;background:#6f42c1;">✏️ Nhập tay</button>
+            <button class="btn-secondary" style="width:auto;padding:10px 20px;" onclick="exportCSV()">Xuất CSV</button>
+        </div>
     </div>
 
     <div class="filter-bar">
@@ -406,6 +409,49 @@
             <div class="modal-actions">
                 <button type="submit">Lưu thay đổi</button>
                 <button type="button" class="btn-cancel" onclick="closeModal()">Huỷ</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Manual Entry Modal -->
+<div class="modal-overlay" id="manualModal" onclick="if(event.target===this)closeManualModal()">
+    <div class="modal-box">
+        <h3>✏️ Nhập giao dịch thủ công</h3>
+        <form id="manualForm">
+            <div class="modal-row">
+                <div>
+                    <label>Ngày phát sinh</label>
+                    <input type="date" id="manualDate" required>
+                </div>
+                <div>
+                    <label>Loại</label>
+                    <select id="manualType">
+                        <option value="Chi">Chi</option>
+                        <option value="Thu">Thu</option>
+                    </select>
+                </div>
+            </div>
+            <label>Đối tượng / Hạng mục</label>
+            <input type="text" id="manualSubject" placeholder="Ví dụ: Mua văn phòng phẩm" required>
+            <div class="modal-row">
+                <div>
+                    <label>Số tiền</label>
+                    <input type="number" id="manualAmount" placeholder="0" required min="0" step="any">
+                </div>
+                <div>
+                    <label>Tiền tệ</label>
+                    <select id="manualCurrency">
+                        <option value="VND">VND</option>
+                        <option value="USD">USD</option>
+                    </select>
+                </div>
+            </div>
+            <label>Ghi chú <span style="font-weight:normal;color:#aaa;">(không bắt buộc)</span></label>
+            <input type="text" id="manualNote" placeholder="Thêm chi tiết...">
+            <div class="modal-actions">
+                <button type="submit">💾 Lưu giao dịch</button>
+                <button type="button" class="btn-cancel" onclick="closeManualModal()">Huỷ</button>
             </div>
         </form>
     </div>
@@ -811,6 +857,144 @@
             btn.style.background = '#28a745';
             setTimeout(() => { btn.textContent = 'Sao chép'; btn.style.background = ''; }, 2000);
         });
+    }
+
+    // ===== NHẬP THỦ CÔNG =====
+    function openManualModal() {
+        document.getElementById('manualDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('manualType').value = 'Chi';
+        document.getElementById('manualSubject').value = '';
+        document.getElementById('manualAmount').value = '';
+        document.getElementById('manualCurrency').value = 'VND';
+        document.getElementById('manualNote').value = '';
+        document.getElementById('manualModal').style.display = 'flex';
+        setTimeout(() => document.getElementById('manualSubject').focus(), 150);
+    }
+
+    function closeManualModal() {
+        document.getElementById('manualModal').style.display = 'none';
+    }
+
+    document.getElementById('manualForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = e.submitter;
+        if (btn) { btn.disabled = true; btn.textContent = 'Đang lưu...'; }
+        const tx = {
+            date: document.getElementById('manualDate').value,
+            type: document.getElementById('manualType').value,
+            subject: document.getElementById('manualSubject').value.trim(),
+            amount: parseFloat(document.getElementById('manualAmount').value),
+            currency: document.getElementById('manualCurrency').value,
+            note: document.getElementById('manualNote').value.trim(),
+            created_by: getCurrentUser(),
+            source: 'Thủ công'
+        };
+        try {
+            const res = await fetch(`${API_URL}/transactions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(tx)
+            });
+            if (!res.ok) throw new Error('Lỗi server');
+            closeManualModal();
+            await loadTransactions();
+        } catch (err) {
+            alert('Lỗi khi lưu giao dịch: ' + err.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '💾 Lưu giao dịch'; }
+        }
+    });
+
+    // ===== XLSX IMPORT =====
+    async function parseXlsxFile() {
+        const fileInput = document.getElementById('xlsxFile');
+        const dateInput = document.getElementById('xlsxDate');
+        const sourceInput = document.getElementById('xlsxSource');
+        if (!fileInput.files || !fileInput.files[0]) { alert('Vui lòng chọn file Excel!'); return; }
+        if (!dateInput.value) { alert('Vui lòng chọn ngày quay / sự kiện!'); return; }
+        const loading = document.getElementById('xlsxLoading');
+        loading.style.display = 'block';
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        try {
+            const res = await fetch(`${API_URL}/parse-xlsx`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.error) { alert('Lỗi: ' + data.error); return; }
+            if (!data.items || !data.items.length) {
+                let msg = 'Không tìm thấy dữ liệu hợp lệ trong file.';
+                if (data.debug_skipped && data.debug_skipped.length)
+                    msg += '\n\nHàng bị bỏ qua:\n' + data.debug_skipped.join('\n');
+                alert(msg); return;
+            }
+            window._xlsxItems = data.items;
+            window._xlsxDate = dateInput.value;
+            window._xlsxSource = sourceInput.value || 'Chi phí sản xuất';
+            const tbody = document.getElementById('xlsxPreviewBody');
+            tbody.innerHTML = '';
+            data.items.forEach((item, idx) => {
+                const tr = document.createElement('tr');
+                tr.style.background = item.isPersonnel ? '#fffde7' : '';
+                tr.innerHTML = `
+                    <td style="text-align:center;padding:6px 8px;">
+                        <input type="checkbox" class="xlsx-check" data-idx="${idx}" checked>
+                    </td>
+                    <td style="padding:6px 8px;font-size:13px;">
+                        ${item.subject}
+                        ${item.isPersonnel ? '<span style="font-size:10px;color:#f59e0b;margin-left:4px;">👤 Nhân sự</span>' : ''}
+                        ${item.note ? '<br><span style="font-size:11px;color:#aaa;">' + item.note + '</span>' : ''}
+                    </td>
+                    <td style="padding:6px 8px;font-size:13px;font-weight:bold;color:#c82333;white-space:nowrap;">
+                        ${Math.round(item.amount).toLocaleString('vi-VN')} ₫
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+            document.querySelectorAll('.xlsx-check').forEach(cb => cb.addEventListener('change', updateXlsxSummary));
+            updateXlsxSummary();
+            document.getElementById('xlsxModal').style.display = 'flex';
+        } catch(err) {
+            alert('Lỗi khi đọc file: ' + err.message);
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+    function updateXlsxSummary() {
+        let count = 0, total = 0;
+        document.querySelectorAll('.xlsx-check').forEach(cb => {
+            if (cb.checked) { count++; total += window._xlsxItems[parseInt(cb.dataset.idx)].amount; }
+        });
+        document.getElementById('xlsxSelectedCount').textContent = count;
+        document.getElementById('xlsxSelectedTotal').textContent = Math.round(total).toLocaleString('vi-VN') + ' ₫';
+    }
+
+    function toggleAllXlsx(masterCb) {
+        document.querySelectorAll('.xlsx-check').forEach(cb => { cb.checked = masterCb.checked; });
+        updateXlsxSummary();
+    }
+
+    function closeXlsxModal() {
+        document.getElementById('xlsxModal').style.display = 'none';
+    }
+
+    async function confirmImportXlsx() {
+        const selected = [];
+        document.querySelectorAll('.xlsx-check').forEach(cb => {
+            if (cb.checked) selected.push(window._xlsxItems[parseInt(cb.dataset.idx)]);
+        });
+        if (!selected.length) { alert('Chưa chọn khoản nào!'); return; }
+        try {
+            const res = await fetch(`${API_URL}/import-xlsx`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: selected, date: window._xlsxDate, source: window._xlsxSource, created_by: getCurrentUser() })
+            });
+            const data = await res.json();
+            if (data.error) { alert('Lỗi: ' + data.error); return; }
+            closeXlsxModal();
+            alert(`✅ Đã import ${data.count} khoản chi phí thành công!`);
+            document.getElementById('xlsxFile').value = '';
+            loadTransactions();
+        } catch(err) { alert('Lỗi khi import: ' + err.message); }
     }
 
     // Tải danh sách key khi mở panel
