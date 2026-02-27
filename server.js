@@ -8,6 +8,22 @@ const cors = require('cors');
 const crypto = require('crypto');
 const XLSX = require('xlsx');
 
+// Tỷ giá USD → VND (có thể đặt biến môi trường USD_RATE để ghi đè)
+const USD_TO_VND = parseInt(process.env.USD_RATE || '25500');
+
+// Convert số tiền về VND
+function normalizeToVND(row) {
+    const r = { ...row };
+    if ((r.currency || '').toUpperCase() === 'USD') {
+        r.amount_original = parseFloat(r.amount);
+        r.currency_original = 'USD';
+        r.amount = Math.round(parseFloat(r.amount) * USD_TO_VND);
+        r.currency = 'VND';
+        r.usd_rate_used = USD_TO_VND;
+    }
+    return r;
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -222,10 +238,11 @@ async function validateApiKey(req, res, next) {
 }
 
 // External read-only endpoint yêu cầu API key
+// Trả về tất cả giao dịch, USD tự động đổi sang VND theo tỷ giá USD_RATE (mặc định 25500)
 app.get('/api/v1/transactions', validateApiKey, async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM transactions ORDER BY date DESC, id DESC');
-        res.json(result.rows);
+        res.json(result.rows.map(normalizeToVND));
     } catch(err) {
         res.status(500).json({ error: 'Lỗi truy vấn database' });
     }
