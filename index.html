@@ -205,6 +205,18 @@
         .btn-revoke:hover { background: #c82333; }
         .api-doc { background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px; padding: 12px 14px; margin-top: 12px; font-size: 12px; color: #7a5e00; }
         .api-doc code { background: #fff3cd; padding: 1px 5px; border-radius: 4px; font-size: 12px; word-break: break-all; }
+
+        /* Selection bar */
+        #selectionBar { display: none; }
+        #selectionBar.active { display: flex !important; }
+
+        /* Checkbox column */
+        table tbody tr td:first-child { min-width: unset; padding: 6px 8px; }
+        @media (max-width: 640px) {
+            table tbody tr td:first-child { display: none !important; }
+            table thead th:first-child { display: none !important; }
+            #selectionBar { display: none !important; }
+        }
     </style>
 </head>
 <body>
@@ -243,6 +255,10 @@
             </select>
         </div>
         <div>
+            <label>Ngày cụ thể</label>
+            <input type="date" id="filterDate" style="margin:0;padding:8px 10px;font-size:14px;width:100%;" onchange="if(this.value){document.getElementById('filterMonth').value='';} applyFilter()">
+        </div>
+        <div>
             <label>Loại</label>
             <select id="filterType">
                 <option value="">Tất cả</option>
@@ -274,10 +290,18 @@
         <div class="summary-card sodu"><span class="label">Số Dư</span><span class="value" id="sumBalance">0 ₫</span></div>
     </div>
     
+    <!-- Thanh action khi chọn dòng -->
+    <div id="selectionBar" style="display:none;background:#1a1a2e;color:white;padding:10px 14px;border-radius:10px;margin-bottom:8px;display:none;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span id="selectionCount" style="font-size:13px;">0 đã chọn</span>
+        <button onclick="deleteSelected()" style="background:#dc3545;color:white;border:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:bold;">🗑️ Xoá đã chọn</button>
+        <button onclick="clearSelection()" style="background:none;border:1px solid #aaa;color:#ccc;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:13px;">✕ Bỏ chọn</button>
+    </div>
+
     <div class="table-wrapper">
     <table id="reportTable">
         <thead>
             <tr>
+                <th style="width:36px;text-align:center;"><input type="checkbox" id="checkAll" onchange="toggleSelectAll(this)"></th>
                 <th>Ngày</th>
                 <th>Người TH</th>
                 <th>Loại</th>
@@ -712,7 +736,9 @@
             else totalChi += amountVND;
 
             const tr = document.createElement('tr');
+            tr.dataset.id = tx.id;
             tr.innerHTML = `
+                <td data-label="" style="text-align:center;"><input type="checkbox" class="row-check" data-id="${tx.id}" onchange="updateSelectionBar()"></td>
                 <td data-label="Ngày">${tx.date}</td>
                 <td data-label="Người TH">${creatorBadge}</td>
                 <td data-label="Loại" style="color: ${isThu ? '#1a8a3c' : '#c82333'}; font-weight: bold;">${tx.type}</td>
@@ -737,23 +763,72 @@
 
     function applyFilter() {
         const month = document.getElementById('filterMonth').value;
+        const date = document.getElementById('filterDate')?.value || '';
         const type = document.getElementById('filterType').value;
         const person = document.getElementById('filterPerson').value;
         const source = document.getElementById('filterSource')?.value || '';
         let filtered = allTransactions;
-        if (month) filtered = filtered.filter(tx => tx.date && tx.date.startsWith(month));
+        if (date) filtered = filtered.filter(tx => tx.date === date);
+        else if (month) filtered = filtered.filter(tx => tx.date && tx.date.startsWith(month));
         if (type) filtered = filtered.filter(tx => tx.type === type);
         if (person) filtered = filtered.filter(tx => tx.created_by === person);
         if (source) filtered = filtered.filter(tx => (tx.source || 'Thủ công') === source);
         renderTable(filtered);
+        clearSelection();
     }
 
     function resetFilter() {
         document.getElementById('filterMonth').value = '';
+        document.getElementById('filterDate').value = '';
         document.getElementById('filterType').value = '';
         document.getElementById('filterPerson').value = '';
         if (document.getElementById('filterSource')) document.getElementById('filterSource').value = '';
         renderTable(allTransactions);
+        clearSelection();
+    }
+
+    // ===== CHỌN NHIỀU / XOÁ HÀNG LOẠT =====
+    function toggleSelectAll(cb) {
+        document.querySelectorAll('.row-check').forEach(c => c.checked = cb.checked);
+        updateSelectionBar();
+    }
+
+    function updateSelectionBar() {
+        const checked = document.querySelectorAll('.row-check:checked');
+        const bar = document.getElementById('selectionBar');
+        const allCb = document.getElementById('checkAll');
+        const total = document.querySelectorAll('.row-check').length;
+        if (checked.length > 0) {
+            bar.style.display = 'flex';
+            document.getElementById('selectionCount').textContent = `${checked.length} giao dịch đã chọn`;
+        } else {
+            bar.style.display = 'none';
+        }
+        if (allCb) allCb.indeterminate = checked.length > 0 && checked.length < total;
+        if (allCb) allCb.checked = total > 0 && checked.length === total;
+    }
+
+    function clearSelection() {
+        document.querySelectorAll('.row-check').forEach(c => c.checked = false);
+        const allCb = document.getElementById('checkAll');
+        if (allCb) { allCb.checked = false; allCb.indeterminate = false; }
+        document.getElementById('selectionBar').style.display = 'none';
+    }
+
+    async function deleteSelected() {
+        const ids = [...document.querySelectorAll('.row-check:checked')].map(c => c.dataset.id);
+        if (!ids.length) return;
+        if (!confirm(`Xoá ${ids.length} giao dịch đã chọn? Không thể khôi phục!`)) return;
+        try {
+            const res = await fetch(`${API_URL}/transactions/rollback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids })
+            });
+            const data = await res.json();
+            if (data.error) { alert('Lỗi: ' + data.error); return; }
+            await loadTransactions();
+        } catch(err) { alert('Lỗi: ' + err.message); }
     }
 
     // ===== XOÁ =====
