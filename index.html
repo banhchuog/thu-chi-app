@@ -1180,13 +1180,76 @@
             const data = await res.json();
             if (data.error) { alert('Lỗi: ' + data.error); return; }
             closeTemplateModal();
-            alert(`✅ Đã import ${data.count} giao dịch thành công!`);
+            // Lưu IDs vào localStorage để có thể hoàn tác
+            if (data.insertedIds && data.insertedIds.length) {
+                localStorage.setItem('last_import_ids', JSON.stringify(data.insertedIds));
+                localStorage.setItem('last_import_count', data.count);
+                localStorage.setItem('last_import_time', Date.now());
+                showUndoBanner(data.count, data.insertedIds);
+            }
             document.getElementById('tplFile').value = '';
             loadTransactions();
         } catch(err) { alert('Lỗi khi import: ' + err.message); }
     }
 
+    // ===== HOÀN TÁC IMPORT =====
+    function showUndoBanner(count, ids) {
+        let banner = document.getElementById('undoBanner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'undoBanner';
+            banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:white;padding:14px 20px;border-radius:12px;display:flex;align-items:center;gap:14px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.4);font-size:14px;max-width:calc(100vw - 40px);';
+            document.body.appendChild(banner);
+        }
+        banner.innerHTML = `<span>✅ Đã import <strong>${count}</strong> giao dịch</span>
+            <button onclick="undoLastImport()" style="background:#dc3545;color:white;border:none;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;">↩️ Hoàn tác</button>
+            <button onclick="document.getElementById('undoBanner').remove()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;padding:0 4px;">✕</button>`;
+        banner.style.display = 'flex';
+        // Tự ẩn sau 60 giây
+        clearTimeout(window._undoTimer);
+        window._undoTimer = setTimeout(() => { if (banner) banner.remove(); }, 60000);
+    }
+
+    async function undoLastImport() {
+        const ids = JSON.parse(localStorage.getItem('last_import_ids') || '[]');
+        const count = localStorage.getItem('last_import_count') || ids.length;
+        if (!ids.length) { alert('Không có lô import nào để hoàn tác!'); return; }
+        if (!confirm(`Xoá ${count} giao dịch vừa import? Không thể khôi phục lại!`)) return;
+        try {
+            const res = await fetch(`${API_URL}/transactions/rollback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids })
+            });
+            const data = await res.json();
+            if (data.error) { alert('Lỗi: ' + data.error); return; }
+            localStorage.removeItem('last_import_ids');
+            localStorage.removeItem('last_import_count');
+            localStorage.removeItem('last_import_time');
+            document.getElementById('undoBanner')?.remove();
+            clearTimeout(window._undoTimer);
+            alert(`✅ Đã hoàn tác, xoá ${data.deleted} giao dịch.`);
+            loadTransactions();
+        } catch(err) { alert('Lỗi khi hoàn tác: ' + err.message); }
+    }
+
+    // Hiển thị lại banner nếu còn lô import gần đây (trong vòng 1 giờ)
+    (function checkPendingUndo() {
+        const ids = JSON.parse(localStorage.getItem('last_import_ids') || '[]');
+        const t = parseInt(localStorage.getItem('last_import_time') || '0');
+        const count = localStorage.getItem('last_import_count');
+        if (ids.length && (Date.now() - t) < 3600000) {
+            setTimeout(() => showUndoBanner(count, ids), 1500);
+        }
+    })();
+
     // Tải danh sách key khi mở panel
+    document.querySelector('details').addEventListener('toggle', function() {
+        if (this.open) loadApiKeys();
+    });
+    // ===== KHỞI ĐỘNG =====
+    checkLogin();
+    if (getCurrentUser()) fetchUsdRate().then(() => loadTransactions());
     document.querySelector('details').addEventListener('toggle', function() {
         if (this.open) loadApiKeys();
     });

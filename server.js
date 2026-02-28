@@ -224,13 +224,36 @@ app.post('/api/import-xlsx', async (req, res) => {
 });
 
 // ===== IMPORT TEMPLATE HÀNG LOẠT =====
+// Helper parse ngày từ Excel: Date object, serial number, YYYY-MM-DD, DD/MM/YYYY
+function parseExcelDate(rawCell, fallback) {
+    if (!rawCell && rawCell !== 0) return fallback;
+    if (rawCell instanceof Date && !isNaN(rawCell)) {
+        const y = rawCell.getFullYear();
+        const m = String(rawCell.getMonth() + 1).padStart(2, '0');
+        const d = String(rawCell.getDate()).padStart(2, '0');
+        return y + '-' + m + '-' + d;
+    }
+    const s = String(rawCell).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(s)) {
+        const p = s.split(/[\/\-]/);
+        return p[2] + '-' + p[1].padStart(2, '0') + '-' + p[0].padStart(2, '0');
+    }
+    // Excel serial number (46023 = 2026-01-01)
+    if (/^\d{5}$/.test(s)) {
+        const d = new Date(Math.round((parseFloat(s) - 25569) * 86400 * 1000));
+        if (!isNaN(d)) return d.toISOString().split('T')[0];
+    }
+    return fallback;
+}
+
 // Parse file CSV/XLSX theo cột header chuẩn: Ngày | Loại | Đối tượng | Số tiền | Tiền tệ | Ghi chú | Người thực hiện
 app.post('/api/parse-template', upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Không có file' });
     try {
         const wb = XLSX.readFile(req.file.path);
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         if (rows.length < 2) return res.json({ items: [], errors: [] });
@@ -264,15 +287,8 @@ app.post('/api/parse-template', upload.single('file'), (req, res) => {
             if (!subject) { errors.push(`Hàng ${i+1}: thiếu đối tượng`); continue; }
             if (!amount)  { errors.push(`Hàng ${i+1}: thiếu hoặc sai số tiền`); continue; }
 
-            const rawDate = get(col.date);
-            // Chấp nhận YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY
-            let date = today;
-            if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-                date = rawDate;
-            } else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(rawDate)) {
-                const parts = rawDate.split(/[\/\-]/);
-                date = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-            }
+            // Parse ngày: xử lý Date object từ xlsx, serial number, string
+            const date = parseExcelDate(col.date >= 0 ? row[col.date] : '', today);
 
             const typeRaw = get(col.type).toLowerCase();
             const type = typeRaw.includes('thu') ? 'Thu' : 'Chi';
@@ -292,12 +308,13 @@ app.post('/api/parse-template', upload.single('file'), (req, res) => {
     }
 });
 
-// Import sau khi user xác nhận (full transaction objects)
+// Import sau khi user xác nhận - trả về insertedIds để rollback nếu cần
 app.post('/api/import-template', async (req, res) => {
     try {
         const { items, default_created_by, source } = req.body;
         if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Không có dữ liệu' });
         let count = 0;
+        const insertedIds = [];
         for (let i = 0; i < items.length; i++) {
             const { date, type, subject, amount, currency, note, created_by } = items[i];
             const id = Date.now() + i * 10;
@@ -306,12 +323,23 @@ app.post('/api/import-template', async (req, res) => {
                 [id, date, type || 'Chi', subject, amount, currency || 'VND', note || '',
                  created_by || default_created_by || 'Import', source || 'Import hàng loạt']
             );
+            insertedIds.push(String(id));
             count++;
         }
-        res.json({ success: true, count });
+        res.json({ success: true, count, insertedIds });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
+});
+
+// Rollback: xoá hàng loạt theo danh sách ID
+app.post('/api/transactions/rollback', async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Không có IDs' });
+        const result = await pool.query('DELETE FROM transactions WHERE id = ANY($1::bigint[])', [ids]);
+        res.json({ success: true, deleted: result.rowCount });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ===== API KEY MANAGEMENT =====
