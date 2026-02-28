@@ -342,6 +342,21 @@ app.post('/api/transactions/rollback', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Xoá theo source (và tuỳ chọn theo ngày)
+app.post('/api/transactions/delete-by-source', async (req, res) => {
+    try {
+        const { source, date } = req.body;
+        if (!source) return res.status(400).json({ error: 'Cần truyền source' });
+        let result;
+        if (date) {
+            result = await pool.query('DELETE FROM transactions WHERE source=$1 AND date=$2', [source, date]);
+        } else {
+            result = await pool.query('DELETE FROM transactions WHERE source=$1', [source]);
+        }
+        res.json({ success: true, deleted: result.rowCount });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ===== API KEY MANAGEMENT =====
 async function validateApiKey(req, res, next) {
     const key = req.headers['x-api-key'] || req.query.api_key;

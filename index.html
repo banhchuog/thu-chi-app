@@ -362,6 +362,26 @@
                 <button onclick="parseTemplateFile()" class="btn-secondary" style="width:auto;padding:10px 18px;white-space:nowrap;">📂 Đọc file</button>
             </div>
             <div id="tplLoading" style="display:none;color:#007bff;text-align:center;padding:12px;font-weight:bold;">Đang đọc file...</div>
+
+            <!-- Khu vực Hoàn tác -->
+            <div style="margin-top:16px;border-top:1px solid #e8e8e8;padding-top:14px;">
+                <div style="font-size:12px;font-weight:700;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">🗑️ Xoá / Hoàn tác dữ liệu</div>
+                <div id="undoLastBox" style="background:#fff8f0;border:1px solid #ffd6a0;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;display:none;">
+                    <span id="undoLastInfo"></span>
+                    <button onclick="undoLastImport()" style="width:auto;margin:6px 0 0 0;padding:7px 14px;background:#dc3545;font-size:13px;">↩️ Hoàn tác lô này</button>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                    <div style="flex:1;min-width:130px;">
+                        <label style="font-size:12px;font-weight:600;">Xoá theo Nguồn</label>
+                        <input type="text" id="deleteSource" placeholder="VD: Import hàng loạt" style="margin:0;font-size:13px;padding:8px;">
+                    </div>
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;font-weight:600;">Ngày (tuỳ chọn)</label>
+                        <input type="date" id="deleteDate" style="margin:0;font-size:13px;padding:8px;">
+                    </div>
+                    <button onclick="deleteBySourceDate()" style="width:auto;padding:10px 14px;background:#dc3545;font-size:13px;white-space:nowrap;flex-shrink:0;">🗑️ Xoá lô này</button>
+                </div>
+            </div>
         </div>
     </details>
 </div>
@@ -1194,6 +1214,11 @@
 
     // ===== HOÀN TÁC IMPORT =====
     function showUndoBanner(count, ids) {
+        // Hiện trong panel
+        const box = document.getElementById('undoLastBox');
+        const info = document.getElementById('undoLastInfo');
+        if (box && info) { info.textContent = `Lô vừa import: ${count} giao dịch`; box.style.display = 'block'; }
+        // Floating banner
         let banner = document.getElementById('undoBanner');
         if (!banner) {
             banner = document.createElement('div');
@@ -1203,22 +1228,20 @@
         }
         banner.innerHTML = `<span>✅ Đã import <strong>${count}</strong> giao dịch</span>
             <button onclick="undoLastImport()" style="background:#dc3545;color:white;border:none;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:bold;white-space:nowrap;">↩️ Hoàn tác</button>
-            <button onclick="document.getElementById('undoBanner').remove()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;padding:0 4px;">✕</button>`;
+            <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;padding:0 4px;">✕</button>`;
         banner.style.display = 'flex';
-        // Tự ẩn sau 60 giây
         clearTimeout(window._undoTimer);
-        window._undoTimer = setTimeout(() => { if (banner) banner.remove(); }, 60000);
+        window._undoTimer = setTimeout(() => { banner.remove(); }, 60000);
     }
 
     async function undoLastImport() {
         const ids = JSON.parse(localStorage.getItem('last_import_ids') || '[]');
         const count = localStorage.getItem('last_import_count') || ids.length;
-        if (!ids.length) { alert('Không có lô import nào để hoàn tác!'); return; }
-        if (!confirm(`Xoá ${count} giao dịch vừa import? Không thể khôi phục lại!`)) return;
+        if (!ids.length) { alert('Không tìm thấy lô import gần đây.\n\nHãy dùng "Xoá theo Nguồn" bên dưới để xoá thủ công.'); return; }
+        if (!confirm(`Xoá ${count} giao dịch vừa import? Không thể khôi phục!`)) return;
         try {
             const res = await fetch(`${API_URL}/transactions/rollback`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ids })
             });
             const data = await res.json();
@@ -1227,13 +1250,32 @@
             localStorage.removeItem('last_import_count');
             localStorage.removeItem('last_import_time');
             document.getElementById('undoBanner')?.remove();
+            document.getElementById('undoLastBox').style.display = 'none';
             clearTimeout(window._undoTimer);
-            alert(`✅ Đã hoàn tác, xoá ${data.deleted} giao dịch.`);
+            alert(`✅ Đã xoá ${data.deleted} giao dịch.`);
             loadTransactions();
-        } catch(err) { alert('Lỗi khi hoàn tác: ' + err.message); }
+        } catch(err) { alert('Lỗi: ' + err.message); }
     }
 
-    // Hiển thị lại banner nếu còn lô import gần đây (trong vòng 1 giờ)
+    async function deleteBySourceDate() {
+        const source = document.getElementById('deleteSource').value.trim();
+        const date = document.getElementById('deleteDate').value;
+        if (!source) { alert('Vui lòng nhập Tên nguồn!'); return; }
+        const dateMsg = date ? ` ngày ${date}` : '';
+        if (!confirm(`Xoá tất cả giao dịch nguồn "${source}"${dateMsg}?\n\nKhông thể khôi phục!`)) return;
+        try {
+            const res = await fetch(`${API_URL}/transactions/delete-by-source`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source, date: date || null })
+            });
+            const data = await res.json();
+            if (data.error) { alert('Lỗi: ' + data.error); return; }
+            alert(`✅ Đã xoá ${data.deleted} giao dịch từ nguồn "${source}"${dateMsg}.`);
+            loadTransactions();
+        } catch(err) { alert('Lỗi: ' + err.message); }
+    }
+
+    // Hiển thị lại nếu còn lô import gần đây (trong vòng 1 giờ)
     (function checkPendingUndo() {
         const ids = JSON.parse(localStorage.getItem('last_import_ids') || '[]');
         const t = parseInt(localStorage.getItem('last_import_time') || '0');
@@ -1244,12 +1286,6 @@
     })();
 
     // Tải danh sách key khi mở panel
-    document.querySelector('details').addEventListener('toggle', function() {
-        if (this.open) loadApiKeys();
-    });
-    // ===== KHỞI ĐỘNG =====
-    checkLogin();
-    if (getCurrentUser()) fetchUsdRate().then(() => loadTransactions());
     document.querySelector('details').addEventListener('toggle', function() {
         if (this.open) loadApiKeys();
     });
