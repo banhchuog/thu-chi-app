@@ -224,26 +224,48 @@ app.post('/api/import-xlsx', async (req, res) => {
 });
 
 // ===== IMPORT TEMPLATE HÀNG LOẠT =====
-// Helper parse ngày từ Excel: Date object, serial number, YYYY-MM-DD, DD/MM/YYYY
+// Helper parse ngày từ Excel: Date object (cellDates:true), serial number, YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY
 function parseExcelDate(rawCell, fallback) {
     if (!rawCell && rawCell !== 0) return fallback;
+
+    // Date object (xlsx cellDates:true) — dùng UTC để tránh lệch múi giờ
     if (rawCell instanceof Date && !isNaN(rawCell)) {
-        const y = rawCell.getFullYear();
-        const m = String(rawCell.getMonth() + 1).padStart(2, '0');
-        const d = String(rawCell.getDate()).padStart(2, '0');
-        return y + '-' + m + '-' + d;
+        const y = rawCell.getUTCFullYear();
+        const m = String(rawCell.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(rawCell.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
+
     const s = String(rawCell).trim();
+
+    // YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(s)) {
-        const p = s.split(/[\/\-]/);
-        return p[2] + '-' + p[1].padStart(2, '0') + '-' + p[0].padStart(2, '0');
+
+    // DD/MM/YYYY hoặc MM/DD/YYYY hoặc dấu gạch ngang
+    const parts = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (parts) {
+        const a = parseInt(parts[1], 10); // phần đầu
+        const b = parseInt(parts[2], 10); // phần giữa
+        const y = parts[3];
+        let day, month;
+        if (b > 12) {
+            // phần giữa > 12 → chắc chắn là ngày (MM/DD/YYYY)
+            day = b; month = a;
+        } else {
+            // Mặc định chuẩn Việt Nam DD/MM/YYYY
+            day = a; month = b;
+        }
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            return `${y}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        }
     }
-    // Excel serial number (46023 = 2026-01-01)
+
+    // Excel serial number (5 chữ số, vd: 46023 = 2026-01-01)
     if (/^\d{5}$/.test(s)) {
-        const d = new Date(Math.round((parseFloat(s) - 25569) * 86400 * 1000));
-        if (!isNaN(d)) return d.toISOString().split('T')[0];
+        const dt = new Date(Math.round((parseFloat(s) - 25569) * 86400 * 1000));
+        if (!isNaN(dt)) return dt.toISOString().split('T')[0];
     }
+
     return fallback;
 }
 
@@ -251,9 +273,10 @@ function parseExcelDate(rawCell, fallback) {
 app.post('/api/parse-template', upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Không có file' });
     try {
-        const wb = XLSX.readFile(req.file.path);
+        // cellDates:true → ô ngày tháng trả về JS Date object thay vì serial number
+        const wb = XLSX.readFile(req.file.path, { cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
         if (rows.length < 2) return res.json({ items: [], errors: [] });
