@@ -1165,7 +1165,8 @@
     function downloadTemplate() {
         const BOM = "\uFEFF";
         const headers = ['Ngày', 'Loại', 'Đối tượng', 'Số tiền', 'Tiền tệ', 'Ghi chú', 'Người thực hiện'];
-        const today = new Date().toISOString().split('T')[0];
+        const now = new Date();
+        const today = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`;
         const user = getCurrentUser() || '';
         const examples = [
             [today, 'Chi', 'Văn phòng phẩm', '150000', 'VND', 'Mua giấy in', user],
