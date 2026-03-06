@@ -303,9 +303,19 @@ app.post('/api/parse-template', upload.single('file'), (req, res) => {
             const get = (idx) => idx >= 0 ? String(row[idx] ?? '').trim() : '';
             const subject = get(col.subject);
             const amountRaw = col.amount >= 0 ? row[col.amount] : '';
-            let amount = typeof amountRaw === 'number'
-                ? amountRaw
-                : parseFloat(String(amountRaw).replace(/[.\s]/g,'').replace(',','.').replace(/[đdₓ₫$%a-zA-Z]/gi,'')) || 0;
+            let amount;
+            if (typeof amountRaw === 'number') {
+                amount = amountRaw;
+            } else {
+                const amtStr = String(amountRaw).trim().replace(/[đdₓ₫$%a-zA-Z\s]/gi, '');
+                // Nếu có đúng 1 dấu chấm và theo sau là 1-2 chữ số → dấu thập phân (USD)
+                // Ngược lại → dấu chấm là phân cách nghìn kiểu VN (1.500.000)
+                if (/^-?\d+\.\d{1,2}$/.test(amtStr)) {
+                    amount = parseFloat(amtStr) || 0;
+                } else {
+                    amount = parseFloat(amtStr.replace(/\./g, '').replace(',', '.')) || 0;
+                }
+            }
 
             if (!subject) { errors.push(`Hàng ${i+1}: thiếu đối tượng`); continue; }
             if (!amount)  { errors.push(`Hàng ${i+1}: thiếu hoặc sai số tiền`); continue; }

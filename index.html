@@ -425,6 +425,7 @@
                         <th style="padding:7px 8px;">Loại</th>
                         <th style="padding:7px 8px;">Đối tượng</th>
                         <th style="padding:7px 8px;">Số tiền</th>
+                        <th style="padding:7px 8px;">Tiền tệ</th>
                         <th style="padding:7px 8px;">Ghi chú</th>
                         <th style="padding:7px 8px;">Người TH</th>
                     </tr>
@@ -1215,6 +1216,7 @@
                     <td style="padding:6px 8px;font-weight:bold;color:${isThu ? '#1a8a3c' : '#c82333'};white-space:nowrap;">${item.type}</td>
                     <td style="padding:6px 8px;font-size:13px;">${item.subject}</td>
                     <td style="padding:6px 8px;font-size:13px;font-weight:bold;white-space:nowrap;color:${isThu ? '#1a8a3c' : '#c82333'};">${isThu ? '+' : '-'}${amtStr}</td>
+                    <td style="padding:6px 8px;font-size:12px;color:#888;text-align:center;">${item.currency || 'VND'}</td>
                     <td style="padding:6px 8px;font-size:12px;color:#888;">${item.note || ''}</td>
                     <td style="padding:6px 8px;font-size:12px;">${item.created_by || ''}</td>`;
                 tbody.appendChild(tr);
