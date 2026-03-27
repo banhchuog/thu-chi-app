@@ -494,7 +494,7 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
             return res.status(400).json({ error: 'Không có ảnh nào được tải lên' });
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const results = [];
         const errors = [];
         const created_by = req.body.created_by || 'Không rõ';
@@ -570,8 +570,8 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
 
                 results.push({ id, type, subject: extracted.subject, amount, currency });
             } catch (err) {
-                console.error('Lỗi xử lý ảnh:', file.originalname, err);
-                errors.push(file.originalname);
+                console.error('Lỗi xử lý ảnh:', file.originalname, err.message || err);
+                errors.push(`${file.originalname}: ${err.message || 'Lỗi không xác định'}`);
             } finally {
                 if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
             }
