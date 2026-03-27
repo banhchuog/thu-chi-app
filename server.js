@@ -494,7 +494,7 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
             return res.status(400).json({ error: 'Không có ảnh nào được tải lên' });
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         const results = [];
         const errors = [];
         const created_by = req.body.created_by || 'Không rõ';
