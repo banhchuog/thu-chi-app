@@ -514,16 +514,18 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
 
                 const prompt = `
                 Hôm nay là ngày ${currentDateStr} (năm ${currentYear}, tháng ${currentMonth}).
-                Phân tích hình ảnh hoá đơn hoặc màn hình chuyển khoản này và trích xuất các thông tin sau dưới dạng JSON:
+                Phân tích hình ảnh hoá đơn, bảng kê, hoặc màn hình chuyển khoản này và trích xuất TẤT CẢ các giao dịch rõ ràng được hiển thị. 
+                Trả về kết quả CƯƠNG QUYẾT LÀ MỘT MẢNG JSON, trong đó mỗi phần tử đại diện cho một giao dịch riêng biệt với cấu trúc sau:
                 {
-                    "date": "Ngày phát sinh (định dạng YYYY-MM-DD). QUAN TRỌNG: Nếu hình chỉ có ngày/tháng mà không rõ năm, hãy dùng năm ${currentYear}. Nếu hình có 2 chữ số năm (ví dụ 26), hãy hiểu là 20XX phù hợp nhất với ngày hôm nay (${currentYear}).",
-                    "subject": "Đối tượng (Tên người gửi/nhận hoặc cửa hàng)",
-                    "amount": "Số tiền dưới dạng số thuần, giữ nguyên phần thập phân nếu có (ví dụ: 24.99 hoặc 1500000, không dùng dấu phẩy phân cách nhóm số)",
+                    "date": "Ngày phát sinh (định dạng YYYY-MM-DD). QUAN TRỌNG: Nếu hình chỉ có ngày/tháng mà không rõ năm, hãy dùng năm ${currentYear}.",
+                    "subject": "Đối tượng (Tên người gửi/nhận, cửa hàng hoặc tiểu mục của khoản tiền đó)",
+                    "amount": "Số tiền dưới dạng số thuần (ví dụ: 24.99 hoặc 1500000, không dùng dấu phẩy phân cách nhóm số)",
                     "currency": "Loại tiền tệ (VND hoặc USD)",
-                    "type": "Bên nhận/chuyển (Thu hoặc Chi)",
-                    "note": "Ghi chú thêm (Nội dung chuyển khoản hoặc chi tiết hoá đơn)"
+                    "type": "Thu hoặc Chi (Nếu là nộp thuế/phí/tiền phạt... thì luôn mặc định là Chi, ngược lại tuỳ thu hay chi)",
+                    "note": "Ghi chú thêm (Có thể lấy mã nội dung/tiểu mục hoặc nội dung chuyển khoản)"
                 }
-                Chỉ trả về JSON hợp lệ, không có markdown hay text nào khác.
+                Nếu chỉ có 1 giao dịch, hãy vẫn trả về mảng có 1 phần tử.
+                Chỉ trả về chuỗi JSON hợp lệ của mảng này (ví dụ: [{"date":"...","subject":"..."},...]), không kèm \`\`\`json hay bất kỳ text nào khác.
                 `;
 
                 const result = await model.generateContent([
@@ -531,44 +533,54 @@ app.post('/api/upload-bulk', upload.array('images'), async (req, res) => {
                     { inlineData: { data: imageBase64, mimeType: file.mimetype } }
                 ]);
 
-                const jsonStr = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-                const extracted = JSON.parse(jsonStr);
-
-                const typeLower = (extracted.type || '').toLowerCase();
-                const type = (typeLower.includes('thu') || typeLower.includes('nhận')) ? 'Thu' : 'Chi';
-                const currency = (extracted.currency || '').toUpperCase().includes('USD') ? 'USD' : 'VND';
-
-                // Validate và sửa năm nếu AI trả về sai
-                let extractedDate = extracted.date || currentDateStr;
-                if (extractedDate && extractedDate.length >= 4) {
-                    const yearInDate = parseInt(extractedDate.substring(0, 4));
-                    if (Math.abs(yearInDate - currentYear) > 1) {
-                        // Năm lệch quá 1 năm → thay bằng năm hiện tại
-                        extractedDate = currentYear + extractedDate.substring(4);
+                const jsonStr = result.response.text().replace(/```json/gi, '').replace(/```/g, '').trim();
+                let extractedList = [];
+                try {
+                    extractedList = JSON.parse(jsonStr);
+                    // Đảm bảo là mảng
+                    if (!Array.isArray(extractedList)) {
+                        extractedList = [extractedList];
                     }
+                } catch (e) {
+                    console.error("Lỗi parse JSON từ Gemini:", jsonStr);
+                    throw new Error("Không thể đọc được kết quả từ AI cho ảnh này");
                 }
 
-                // Parse số tiền: giữ dấu thập phân nếu là USD, loại bỏ nếu là VND
-                function parseAmount(raw) {
-                    const str = String(raw || '0').replace(/[^0-9.,]/g, '');
-                    // Nếu kết thúc bằng dấu phẩy hoặc chấm rồi 1-2 số (thập phân thật sự)
-                    const decMatch = str.match(/[.,](\d{1,2})$/);
-                    if (decMatch) {
-                        const dec = decMatch[1];
-                        const intPart = str.slice(0, str.length - decMatch[0].length).replace(/[.,]/g, '');
-                        return parseFloat(`${intPart}.${dec}`) || 0;
+                for (let j = 0; j < extractedList.length; j++) {
+                    const extracted = extractedList[j];
+                    const typeLower = (extracted.type || '').toLowerCase();
+                    const type = (typeLower.includes('thu') || typeLower.includes('nhận')) ? 'Thu' : 'Chi';
+                    const currency = (extracted.currency || '').toUpperCase().includes('USD') ? 'USD' : 'VND';
+
+                    // Validate và sửa năm
+                    let extractedDate = extracted.date || currentDateStr;
+                    if (extractedDate && extractedDate.length >= 4) {
+                        const yearInDate = parseInt(extractedDate.substring(0, 4));
+                        if (Math.abs(yearInDate - currentYear) > 1) {
+                            extractedDate = currentYear + extractedDate.substring(4);
+                        }
                     }
-                    return parseInt(str.replace(/[.,]/g, ''), 10) || 0;
+
+                    function parseAmount(raw) {
+                        const str = String(raw || '0').replace(/[^0-9.,]/g, '');
+                        const decMatch = str.match(/[.,](\d{1,2})$/);
+                        if (decMatch) {
+                            const dec = decMatch[1];
+                            const intPart = str.slice(0, str.length - decMatch[0].length).replace(/[.,]/g, '');
+                            return parseFloat(`${intPart}.${dec}`) || 0;
+                        }
+                        return parseInt(str.replace(/[.,]/g, ''), 10) || 0;
+                    }
+                    const amount = parseAmount(extracted.amount);
+                    const id = Date.now() + i * 100 + j;
+
+                    await pool.query(
+                        'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+                        [id, extractedDate, type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '', created_by, uploadSource]
+                    );
+
+                    results.push({ id, type, subject: extracted.subject, amount, currency });
                 }
-                const amount = parseAmount(extracted.amount);
-                const id = Date.now() + i;
-
-                await pool.query(
-                    'INSERT INTO transactions (id, date, type, subject, amount, currency, note, created_by, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-                    [id, extractedDate, type, extracted.subject || 'Không rõ', amount, currency, extracted.note || '', created_by, uploadSource]
-                );
-
-                results.push({ id, type, subject: extracted.subject, amount, currency });
             } catch (err) {
                 console.error('Lỗi xử lý ảnh:', file.originalname, err.message || err);
                 errors.push(`${file.originalname}: ${err.message || 'Lỗi không xác định'}`);
