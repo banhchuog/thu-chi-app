@@ -284,6 +284,9 @@ app.post('/api/parse-template', upload.single('file'), (req, res) => {
         // Map header → column index (chấp nhận tiếng Việt + tiếng Anh)
         const headers = rows[0].map(h => String(h).trim().toLowerCase());
         const col = {
+            day:        headers.findIndex(h => /^ngày|day/.test(h) && !/tháng|năm/.test(h)),
+            month:      headers.findIndex(h => /^tháng|month/.test(h)),
+            year:       headers.findIndex(h => /^năm|year/.test(h)),
             date:       headers.findIndex(h => /ngày|date/.test(h)),
             type:       headers.findIndex(h => /^loại|^type/.test(h)),
             subject:    headers.findIndex(h => /đối tượng|subject|hạng mục/.test(h)),
@@ -320,8 +323,22 @@ app.post('/api/parse-template', upload.single('file'), (req, res) => {
             if (!subject) { errors.push(`Hàng ${i+1}: thiếu đối tượng`); continue; }
             if (!amount)  { errors.push(`Hàng ${i+1}: thiếu hoặc sai số tiền`); continue; }
 
-            // Parse ngày: xử lý Date object từ xlsx, serial number, string
-            const date = parseExcelDate(col.date >= 0 ? row[col.date] : '', today);
+            // Parse ngày: xử lý nếu có tách Ngày, Tháng, Năm
+            let date = today;
+            if (col.day >= 0 && col.month >= 0 && col.year >= 0) {
+                let dStr = get(col.day).replace(/[^\d]/g, '');
+                let mStr = get(col.month).replace(/[^\d]/g, '');
+                let yStr = get(col.year).replace(/[^\d]/g, '');
+                if (dStr && mStr && yStr) {
+                    date = `${yStr}-${mStr.padStart(2, '0')}-${dStr.padStart(2, '0')}`;
+                } else {
+                    // fall back
+                    date = parseExcelDate(col.date >= 0 ? row[col.date] : '', today);
+                }
+            } else {
+                // fall back to old date column format
+                date = parseExcelDate(col.date >= 0 ? row[col.date] : '', today);
+            }
 
             const typeRaw = get(col.type).toLowerCase();
             const type = typeRaw.includes('thu') ? 'Thu' : 'Chi';

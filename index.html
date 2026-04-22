@@ -1164,14 +1164,16 @@
     // ===== IMPORT TEMPLATE HÀNG LOẠT =====
     function downloadTemplate() {
         const BOM = "\uFEFF";
-        const headers = ['Ngày', 'Loại', 'Đối tượng', 'Số tiền', 'Tiền tệ', 'Ghi chú', 'Người thực hiện'];
+        const headers = ['Ngày', 'Tháng', 'Năm', 'Loại', 'Đối tượng', 'Số tiền', 'Tiền tệ', 'Ghi chú', 'Người thực hiện'];
         const now = new Date();
-        const today = `${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`;
+        const d = String(now.getDate()).padStart(2, '0');
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const y = now.getFullYear();
         const user = getCurrentUser() || '';
         const examples = [
-            [today, 'Chi', 'Văn phòng phẩm', '150000', 'VND', 'Mua giấy in', user],
-            [today, 'Thu', 'Khách hàng ABC', '5000000', 'VND', 'Thanh toán HĐ001', user],
-            [today, 'Chi', 'Phí dịch vụ cloud', '24.99', 'USD', '', user],
+            [d, m, y, 'Chi', 'Văn phòng phẩm', '150000', 'VND', 'Mua giấy in', user],
+            [d, m, y, 'Thu', 'Khách hàng ABC', '5000000', 'VND', 'Thanh toán HĐ001', user],
+            [d, m, y, 'Chi', 'Phí dịch vụ cloud', '24.99', 'USD', '', user],
         ];
         const csv = [headers, ...examples]
             .map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(','))
